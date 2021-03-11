@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <errno.h>
 
+
 // ... //
 
 char dir_list[ 256 ][ 256 ];
