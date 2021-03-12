@@ -24,78 +24,6 @@ int isDirOrFile(const char *path){
 int isLeagalPath(const char* path){
 	return 1;
 }
-
-
-
-char dir_list[ 256 ][ 256 ];
-int curr_dir_idx = -1;
-
-char files_list[ 256 ][ 256 ];
-int curr_file_idx = -1;
-
-char files_content[ 256 ][ 256 ];
-int curr_file_content_idx = -1;
-
-
-void add_dir( const char *dir_name )
-{
-	curr_dir_idx++;
-	strcpy( dir_list[ curr_dir_idx ], dir_name );
-}
-
-int is_dir( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_dir_idx; curr_idx++ )
-		if ( strcmp( path, dir_list[ curr_idx ] ) == 0 )
-			return 1;
-	
-	return 0;
-}
-
-void add_file( const char *filename )
-{
-	curr_file_idx++;
-	strcpy( files_list[ curr_file_idx ], filename );
-	
-	curr_file_content_idx++;
-	strcpy( files_content[ curr_file_content_idx ], "" );
-}
-
-int is_file( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_file_idx; curr_idx++ )
-		if ( strcmp( path, files_list[ curr_idx ] ) == 0 )
-			return 1;
-	
-	return 0;
-}
-
-int get_file_index( const char *path )
-{
-	path++; // Eliminating "/" in the path
-	
-	for ( int curr_idx = 0; curr_idx <= curr_file_idx; curr_idx++ )
-		if ( strcmp( path, files_list[ curr_idx ] ) == 0 )
-			return curr_idx;
-	
-	return -1;
-}
-
-void write_to_file( const char *path, const char *new_content )
-{
-	int file_idx = get_file_index( path );
-	
-	if ( file_idx == -1 ) // No such file
-		return;
-	strcpy( files_content[ file_idx ], new_content ); 
-}
-
-// ... //
-
 static int do_getattr( const char *path, struct stat *st )
 {
     //printf("do_getattr %s\n",path);
@@ -142,22 +70,19 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
 
 static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi )
 {
-    printf("do_read %s\n",path);
-	int file_idx = get_file_index( path );
+    //printf("do_read %s\n",path);
+	DirectoryTree* node = find(root,path);
+	if(node){
+		memcpy(buffer,node->fd->c_p->content + offset,size);
+		return node->fd->f_size - offset;
+	}
+	return -ENOENT;
 	
-	if ( file_idx == -1 )
-		return -1;
-	
-	char *content = files_content[ file_idx ];
-	
-	memcpy( buffer, content + offset, size );
-		
-	return strlen( content ) - offset;
 }
 
 static int do_mkdir( const char *path, mode_t mode )
 {
-    printf("do_mkdir %s\n",path);
+    //printf("do_mkdir %s\n",path);
 	// TODO: judge if path is legal
 	DirectoryTree* node =  add(&root,path);
 	if(node != NULL){
@@ -172,7 +97,7 @@ static int do_mkdir( const char *path, mode_t mode )
 
 static int do_mknod( const char *path, mode_t mode, dev_t rdev )
 {
-	printf("do_mknod %s\n",path);
+	//printf("do_mknod %s\n",path);
 
 	// TODO: judge if path is legal
 	DirectoryTree* node = add(&root,path);
@@ -186,22 +111,45 @@ static int do_mknod( const char *path, mode_t mode, dev_t rdev )
 	return 0;
 }
 
+
 static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info )
 {
-    printf("do_write %s\n",path);
-	printf("%ld\n",info->fh);
-	write_to_file( path, buffer );
-	
+    //printf("do_write %s\n",path);
+	//printf("%ld\n",info->fh);
+
+	// write_to_file( path, buffer );
+	// @alpha 1.1: over write
+	DirectoryTree* node = find(root,path);
+	if(node == NULL){
+		//printf("207-----%s\n",path);
+		node = add(&root,path);
+		if(node){
+			node->fd->mark = 1;
+			node->fd->f_size = size;
+			node->fd->c_p = (Content* )(malloc(sizeof(Content)));
+			//printf("212-----%s\n",node->dir_name);
+			strcpy(node->fd->c_p->content,buffer);
+			//printf("214-----%s\n",node->fd->c_p->content);
+		}else{
+
+			return -ENONET;
+		}
+	}else{
+		//printf("221-----%s\n",path);
+		node->fd->f_size = size;
+		node->fd->c_p = (Content* )(malloc(sizeof(Content)));
+		strcpy(node->fd->c_p->content,buffer);
+	}
 	return size;
 }
 
 static struct fuse_operations operations = {
     .getattr	= do_getattr,
     .readdir	= do_readdir,
-    //.read	= do_read,
+    .read	= do_read,
     .mkdir	= do_mkdir,
     .mknod	= do_mknod,
-    //.write	= do_write,
+    .write	= do_write,
 };
 
 int main( int argc, char *argv[] )
