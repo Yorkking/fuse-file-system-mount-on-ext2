@@ -12,7 +12,7 @@ int hash_file_fd(char* file_name){
     
 }
 
-DirectoryTree* find(DirectoryTree* root,char* path){
+DirectoryTree* find(DirectoryTree* root,const char* path){
     // suppose the length of the fileName is less than MAX_FILE_NAME_LENGTH
     // according the '/' to split the path and search it.
     // current layer to find if the directory exists.
@@ -30,6 +30,7 @@ DirectoryTree* find(DirectoryTree* root,char* path){
         }
         tempName[i] = '\0';
         DirectoryTree* head = root;
+        
         while(head){
             if(strcmp(head->dir_name,tempName) == 0){
                 break;
@@ -44,12 +45,14 @@ DirectoryTree* find(DirectoryTree* root,char* path){
 }
 
 // add one file or directory
-DirectoryTree* add(DirectoryTree** root, char* path){
+DirectoryTree* add(DirectoryTree** root, const char* path){
     //printf("56 ___ %s\n",path);
     if(strcmp(path,"/") == 0 && *root == NULL){
         *root = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
         (*root)->brother = NULL;
         (*root)->nextLayer = NULL;
+        (*root)->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
+
         strcpy((*root)->dir_name,"/");
         return *root;
     }
@@ -73,6 +76,7 @@ DirectoryTree* add(DirectoryTree** root, char* path){
     DirectoryTree* newNode = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
     newNode->brother = NULL;
     newNode->nextLayer = NULL;
+    newNode->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
     
     strcpy(newNode->dir_name,path+i+1);
     //printf("84 ---- %s\n",newNode->dir_name);
@@ -85,7 +89,9 @@ DirectoryTree* add(DirectoryTree** root, char* path){
     while(tempP->brother){
         
         if(strcmp(tempP->brother->dir_name,newNode->dir_name) == 0){
+            free(newNode->fd);
             free(newNode);
+
             newNode = NULL;
             return NULL;
         }
@@ -94,6 +100,7 @@ DirectoryTree* add(DirectoryTree** root, char* path){
     }
     tempP->brother = newNode;
     node->nextLayer = t_p->brother;
+    (node->fd->f_size)++;
 
     return newNode;
 }
@@ -101,6 +108,7 @@ DirectoryTree* add(DirectoryTree** root, char* path){
 void eraseTree(DirectoryTree** root){
     if(*root){
         DirectoryTree* temp = (*root)->nextLayer;
+        free((*root)->fd);
         free(*root);
         *root = NULL;
         while(temp){
@@ -111,7 +119,7 @@ void eraseTree(DirectoryTree** root){
     }
 }
 
-void getFatherCurPath(char* f_dst,char* s_dst,char* path){
+void getFatherCurPath(char* f_dst,char* s_dst,const char* path){
     if(strcmp(path,"/") == 0){
         strcpy(f_dst,path);
         return;
@@ -129,7 +137,7 @@ void getFatherCurPath(char* f_dst,char* s_dst,char* path){
     strncpy(s_dst,path+i+1, strlen(path)  - i);
 }
 
-int eraseNode(DirectoryTree** root, char* path){
+int eraseNode(DirectoryTree** root, const char* path){
     if(strcmp((*root)->dir_name,"/") == 0 && strcmp(path,"/") == 0){
         eraseTree(root);
         return 1;
@@ -154,6 +162,7 @@ int eraseNode(DirectoryTree** root, char* path){
     if(head == NULL) return -1;
     tempP->brother = head->brother;
     node->nextLayer = t_p->brother;
+    (node->fd->f_size)--;  // directory size decrease
     eraseTree(&head);
     return 1;
 }
@@ -169,6 +178,9 @@ void PrintTree(DirectoryTree* root){
         }
     }
 }
+
+
+
 
 
 #ifdef __NAME__MAIN_TEST_
