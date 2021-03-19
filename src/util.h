@@ -25,6 +25,7 @@ typedef struct DirectoryTree{
     struct DirectoryTree* brother;
 }DirectoryTree;
 
+
 DirectoryTree* find(DirectoryTree* root,const char* path);
 DirectoryTree* add(DirectoryTree** root, const char* path);
 void eraseTree(DirectoryTree** root);

@@ -104,7 +104,7 @@ static int do_mknod( const char *path, mode_t mode, dev_t rdev )
 	if(node != NULL){
 		node->fd->mark = 1;
 		node->fd->f_size = 0;
-		node->fd->c_p = NULL;
+		
 	}else{
 		return -ENONET;
 	}
@@ -126,7 +126,7 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		if(node){
 			node->fd->mark = 1;
 			node->fd->f_size = size;
-			node->fd->c_p = (Content* )(malloc(sizeof(Content)));
+			//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
 			//printf("212-----%s\n",node->dir_name);
 			strcpy(node->fd->c_p->content,buffer);
 			//printf("214-----%s\n",node->fd->c_p->content);
@@ -137,7 +137,7 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 	}else{
 		//printf("221-----%s\n",path);
 		node->fd->f_size = size;
-		node->fd->c_p = (Content* )(malloc(sizeof(Content)));
+		//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
 		strcpy(node->fd->c_p->content,buffer);
 	}
 	return size;

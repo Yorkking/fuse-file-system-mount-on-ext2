@@ -2,14 +2,27 @@
 #include<string.h>
 #include<stdlib.h>
 #include<stdio.h>
-//#define __NAME__MAIN_TEST_
+//#define __NAME__MAIN_TEST__
 
 #ifndef MAX_FILE_NAME_LENGTH
 #define MAX_FILE_NAME_LENGTH 50
 #endif
 
-int hash_file_fd(char* file_name){
-    
+void createDirNode(DirectoryTree** node){
+    *node = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
+    (*node)->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
+    (*node)->fd->c_p = (Content*)(malloc(sizeof(Content)));
+    (*node)->nextLayer = NULL;
+    (*node)->nextLayer = NULL;
+
+}
+void freeDirNode(DirectoryTree** node){
+    free((*node)->fd->c_p);
+    (*node)->fd->c_p = NULL;
+    free((*node)->fd);
+    (*node)->fd = NULL;
+    free(*node);
+    *node == NULL;
 }
 
 DirectoryTree* find(DirectoryTree* root,const char* path){
@@ -48,11 +61,13 @@ DirectoryTree* find(DirectoryTree* root,const char* path){
 DirectoryTree* add(DirectoryTree** root, const char* path){
     //printf("56 ___ %s\n",path);
     if(strcmp(path,"/") == 0 && *root == NULL){
+        /*
         *root = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
         (*root)->brother = NULL;
         (*root)->nextLayer = NULL;
         (*root)->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
-
+        */
+        createDirNode(root);
         strcpy((*root)->dir_name,"/");
         return *root;
     }
@@ -73,10 +88,14 @@ DirectoryTree* add(DirectoryTree** root, const char* path){
         //printf("78-----NULL\n");
         return NULL;
     }
+    /*
     DirectoryTree* newNode = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
     newNode->brother = NULL;
     newNode->nextLayer = NULL;
     newNode->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
+    */
+    DirectoryTree* newNode;
+    createDirNode(&newNode);
     
     strcpy(newNode->dir_name,path+i+1);
     //printf("84 ---- %s\n",newNode->dir_name);
@@ -89,10 +108,13 @@ DirectoryTree* add(DirectoryTree** root, const char* path){
     while(tempP->brother){
         
         if(strcmp(tempP->brother->dir_name,newNode->dir_name) == 0){
+            /*
             free(newNode->fd);
             free(newNode);
 
             newNode = NULL;
+            */
+            freeDirNode(&newNode);
             return NULL;
         }
         
@@ -108,9 +130,12 @@ DirectoryTree* add(DirectoryTree** root, const char* path){
 void eraseTree(DirectoryTree** root){
     if(*root){
         DirectoryTree* temp = (*root)->nextLayer;
+        /*
         free((*root)->fd);
         free(*root);
         *root = NULL;
+        */
+        freeDirNode(root);
         while(temp){
             DirectoryTree* t = temp;
             eraseTree(&t);
@@ -183,7 +208,7 @@ void PrintTree(DirectoryTree* root){
 
 
 
-#ifdef __NAME__MAIN_TEST_
+#ifdef __NAME__MAIN_TEST__
 int main(){
     DirectoryTree* root = NULL;
     DirectoryTree* node = NULL;
