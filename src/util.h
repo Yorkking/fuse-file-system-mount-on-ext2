@@ -2,10 +2,11 @@
 #define UTIL_H 1
 
 #define MAX_FILE_NAME_LENGTH 50
-//extern int hash_file_fd(char* file_name);
+
 #ifndef CONTENT_LENGTH
-#define CONTENT_LENGTH 100
+#define CONTENT_LENGTH 128
 #endif
+
 typedef struct Content{
     char content[CONTENT_LENGTH];
 }Content;
