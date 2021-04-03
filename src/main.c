@@ -13,7 +13,6 @@
 
 TOID(struct DirectoryTree) root;
 
-
 int isDirOrFile(const char *path){
     TOID(struct DirectoryTree) node = find(root,path);
 	if(TOID_IS_NULL(node)) return -1; // don't exsit
@@ -23,8 +22,7 @@ int isDirOrFile(const char *path){
 int isLeagalPath(const char* path){ // TODO
 	return 1;
 }
-static int do_getattr( const char *path, struct stat *st )
-{
+static int do_getattr( const char *path, struct stat *st ){
     //printf("do_getattr %s\n",path);
     st->st_uid = getuid(); // The owner of the file/directory is the user who mounted the filesystem
 	st->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
@@ -67,8 +65,7 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
 	}
 }
 
-static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi )
-{
+static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi ){
     //printf("do_read %s\n",path);
 	TOID(struct DirectoryTree) node = find(root,path);
 	if(!TOID_IS_NULL(node)){
@@ -79,8 +76,7 @@ static int do_read( const char *path, char *buffer, size_t size, off_t offset, s
 	
 }
 
-static int do_mkdir( const char *path, mode_t mode )
-{
+static int do_mkdir( const char *path, mode_t mode ){
     //printf("do_mkdir %s\n",path);
 	// TODO: judge if path is legal
 	TOID(struct DirectoryTree) node =  add(&root,path,0);
@@ -94,8 +90,7 @@ static int do_mkdir( const char *path, mode_t mode )
 	}
 }
 
-static int do_mknod( const char *path, mode_t mode, dev_t rdev )
-{
+static int do_mknod( const char *path, mode_t mode, dev_t rdev ){
 	//printf("do_mknod %s\n",path);
 
 	// TODO: judge if path is legal
@@ -110,12 +105,8 @@ static int do_mknod( const char *path, mode_t mode, dev_t rdev )
 	return 0;
 }
 
-
-static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info )
-{
-    //printf("do_write %s\n",path);
-	//printf("%ld\n",info->fh);
-
+static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info ){
+   
 	// write_to_file( path, buffer );
 	// @alpha 1.1: over write
 	TOID(struct DirectoryTree) node = find(root,path);
@@ -142,6 +133,16 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 	return size;
 }
 
+static int do_unlink(const char* path){
+	int flag = eraseNode(&root,path);
+	if(flag < 0) -ENONET;
+	return 0;
+}
+static int do_rmdir(const char* path){
+	int flag = eraseNode(&root,path);
+	if(flag < 0) -ENONET;
+	return 0;
+}
 static struct fuse_operations operations = {
     .getattr	= do_getattr,
     .readdir	= do_readdir,
@@ -149,6 +150,8 @@ static struct fuse_operations operations = {
     .mkdir	= do_mkdir,
     .mknod	= do_mknod,
     .write	= do_write,
+	.unlink =  do_unlink,
+	.rmdir = do_rmdir,
 };
 
 int main( int argc, char *argv[] ){
