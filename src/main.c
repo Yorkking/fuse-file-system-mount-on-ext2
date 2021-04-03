@@ -11,17 +11,16 @@
 #include <errno.h>
 #include "util.h"
 
-DirectoryTree* root;
-#define FILE_NUM 100
-Content file_nodes[FILE_NUM];
+TOID(struct DirectoryTree) root;
+
 
 int isDirOrFile(const char *path){
-    DirectoryTree* node = find(root,path);
-	if(node == NULL) return -1; // don't exsit
-	return node->fd->mark; // 1 for file, 0 for directory
+    TOID(struct DirectoryTree) node = find(root,path);
+	if(TOID_IS_NULL(node)) return -1; // don't exsit
+	return TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1 ; // 1 for file, 0 for directory
 }
 
-int isLeagalPath(const char* path){
+int isLeagalPath(const char* path){ // TODO
 	return 1;
 }
 static int do_getattr( const char *path, struct stat *st )
@@ -53,14 +52,14 @@ static int do_getattr( const char *path, struct stat *st )
 static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi ){	
 	
 	//printf("do_readdir %s\n",path);
-	DirectoryTree*node =  find(root,path);
-	if(node != NULL && node->fd->mark == 0){
+	TOID(struct DirectoryTree) node =  find(root,path);
+	if( ! TOID_IS_NULL(node) && TOID_IS_NULL(D_RW(node)->fd)){
 		filler( buffer, ".", NULL, 0 ); // Current Directory
 		filler( buffer, "..", NULL, 0 ); // Parent Directory
-		DirectoryTree* head = node->nextLayer;
-		while(head){
-			filler(buffer,head->dir_name,NULL,0);
-			head = head->brother;
+		TOID(struct DirectoryTree) head = D_RW(node)->nextLayer;
+		while(!TOID_IS_NULL(head)){
+			filler(buffer,D_RW(head)->dir_name,NULL,0);
+			head = D_RW(head)->brother;
 		}
 		return 0;
 	}else{
@@ -71,10 +70,10 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
 static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi )
 {
     //printf("do_read %s\n",path);
-	DirectoryTree* node = find(root,path);
-	if(node){
-		memcpy(buffer,node->fd->c_p->content + offset,size);
-		return node->fd->f_size - offset;
+	TOID(struct DirectoryTree) node = find(root,path);
+	if(!TOID_IS_NULL(node)){
+		memcpy(buffer,D_RW(D_RW(D_RW(node)->fd)->c_p)->content + offset,size);
+		return D_RW(D_RW(node)->fd)->f_size - offset;
 	}
 	return -ENOENT;
 	
@@ -84,11 +83,11 @@ static int do_mkdir( const char *path, mode_t mode )
 {
     //printf("do_mkdir %s\n",path);
 	// TODO: judge if path is legal
-	DirectoryTree* node =  add(&root,path);
-	if(node != NULL){
-		node->fd->mark = 0;
-		node->fd->f_size = 0;
-		node->fd->c_p = NULL;
+	TOID(struct DirectoryTree) node =  add(&root,path,0);
+	if(!TOID_IS_NULL(node)){
+		//D_RW(node)->fd->mark = 0;
+		// node->fd->f_size = 0;
+		// node->fd->c_p = NULL;
 		return 0;
 	}else{
 		return -ENOENT;
@@ -100,10 +99,10 @@ static int do_mknod( const char *path, mode_t mode, dev_t rdev )
 	//printf("do_mknod %s\n",path);
 
 	// TODO: judge if path is legal
-	DirectoryTree* node = add(&root,path);
-	if(node != NULL){
-		node->fd->mark = 1;
-		node->fd->f_size = 0;
+	TOID(struct DirectoryTree) node = add(&root,path,1);
+	if(! TOID_IS_NULL(node)){
+		//node->fd->mark = 1;
+		D_RW(D_RW(node)->fd)->f_size = 0;
 		
 	}else{
 		return -ENONET;
@@ -119,16 +118,16 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 
 	// write_to_file( path, buffer );
 	// @alpha 1.1: over write
-	DirectoryTree* node = find(root,path);
-	if(node == NULL){
+	TOID(struct DirectoryTree) node = find(root,path);
+	if( TOID_IS_NULL(node)){
 		//printf("207-----%s\n",path);
-		node = add(&root,path);
-		if(node){
-			node->fd->mark = 1;
-			node->fd->f_size = size;
+		node = add(&root,path,1);
+		if(! TOID_IS_NULL(node)){
+			//node->fd->mark = 1;
+			D_RW(D_RW(node)->fd)->f_size = size;
 			//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
 			//printf("212-----%s\n",node->dir_name);
-			strcpy(node->fd->c_p->content,buffer);
+			strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
 			//printf("214-----%s\n",node->fd->c_p->content);
 		}else{
 
@@ -136,9 +135,9 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		}
 	}else{
 		//printf("221-----%s\n",path);
-		node->fd->f_size = size;
+		D_RW(D_RW(node)->fd)->f_size = size;
 		//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
-		strcpy(node->fd->c_p->content,buffer);
+		strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
 	}
 	return size;
 }
@@ -152,13 +151,10 @@ static struct fuse_operations operations = {
     .write	= do_write,
 };
 
-int main( int argc, char *argv[] )
-{
-	root = NULL;
-	DirectoryTree* node = add(&root,"/");
-	node->fd->mark = 0;
-	node->fd->c_p = NULL;
-	node->fd->f_size = 0;
+int main( int argc, char *argv[] ){
+
+    init(&root);
+	// TOID(struct DirectoryTree) node = add(&root,"/");
 	//PrintTree(root);
 	fuse_main( argc, argv, &operations, NULL );
 	return 0;

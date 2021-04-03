@@ -2,150 +2,67 @@
 #include<string.h>
 #include<stdlib.h>
 #include<stdio.h>
-//#define __NAME__MAIN_TEST__
 
-#ifndef MAX_FILE_NAME_LENGTH
-#define MAX_FILE_NAME_LENGTH 50
-#endif
+//#define __NAME__MAIN__TEST__
 
-void createDirNode(DirectoryTree** node){
-    *node = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
-    (*node)->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
-    (*node)->fd->c_p = (Content*)(malloc(sizeof(Content)));
-    (*node)->nextLayer = NULL;
-    (*node)->nextLayer = NULL;
+#define pool_file_name "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem"
 
-}
-void freeDirNode(DirectoryTree** node){
-    free((*node)->fd->c_p);
-    (*node)->fd->c_p = NULL;
-    free((*node)->fd);
-    (*node)->fd = NULL;
-    free(*node);
-    *node == NULL;
-}
+PMEMobjpool* DirectoryTreePop;
 
-DirectoryTree* find(DirectoryTree* root,const char* path){
-    // suppose the length of the fileName is less than MAX_FILE_NAME_LENGTH
-    // according the '/' to split the path and search it.
-    // current layer to find if the directory exists.
-    if(root == NULL) return NULL;
-    if(path[0] == '/' && strcmp(root->dir_name,"/") == 0){ // from root
-        if(strcmp(path,"/") == 0) return root;
-        return find(root->nextLayer,path+1);
+void init(TOID(struct DirectoryTree)* root){
+    DirectoryTreePop = pmemobj_open(pool_file_name, LAYOUT_NAME);
+    if(DirectoryTreePop == NULL){
+        DirectoryTreePop = pmemobj_create(pool_file_name,LAYOUT_NAME, PMEMOBJ_MIN_POOL,0666);
+        if(DirectoryTreePop == NULL){
+            perror("pmemobj_create");
+            return;
+        }
+        TOID(struct MyRoot) root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
+        (*root) = D_RW(root_obj)->root;
+        if(TOID_IS_NULL(add(root,"/",0))){
+            perror("create root directory fail");
+        }
+        D_RW(root_obj)->root = (*root);
     }else{
-        int i = 0;
-        char tempName[MAX_FILE_NAME_LENGTH] = {'\0'};
-        while(*path != '/' && *path){
-            tempName[i] = *path;
-            path++;
-            i++;
-        }
-        tempName[i] = '\0';
-        DirectoryTree* head = root;
-        
-        while(head){
-            if(strcmp(head->dir_name,tempName) == 0){
-                break;
-            }
-            head = head->brother;
-        }
-        if( !*path || !head){// encounter the '/0' or don't exist such directory or file
-            return head;
-        }
-        return find(head->nextLayer,path+1); // +1 to eliminate the '/' 
+        TOID(struct MyRoot) root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
+        (*root) = D_RW(root_obj)->root;
     }
+
+    return;
 }
-
-// add one file or directory
-DirectoryTree* add(DirectoryTree** root, const char* path){
-    //printf("56 ___ %s\n",path);
-    if(strcmp(path,"/") == 0 && *root == NULL){
-        /*
-        *root = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
-        (*root)->brother = NULL;
-        (*root)->nextLayer = NULL;
-        (*root)->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
-        */
-        createDirNode(root);
-        strcpy((*root)->dir_name,"/");
-        return *root;
-    }
-
-    char temp[MAX_FILE_NAME_LENGTH];
-    int i;
-    for(i=strlen(path)-1;i>=0 && path[i] != '/';--i){
-    }
-    int flag = i == 0?1: 0;
-    
-    for(int j=0;j<i+flag;++j){
-        temp[j] = path[j];
-    }
-    temp[i+flag] = '\0';
-    //printf("74 ___ %s\n",temp);
-    DirectoryTree* node = find(*root,temp);
-    if(node == NULL){
-        //printf("78-----NULL\n");
-        return NULL;
-    }
-    /*
-    DirectoryTree* newNode = (DirectoryTree*)(malloc(sizeof(DirectoryTree)));
-    newNode->brother = NULL;
-    newNode->nextLayer = NULL;
-    newNode->fd = (FileDescriptor*)(malloc(sizeof(FileDescriptor)));
-    */
-    DirectoryTree* newNode;
-    createDirNode(&newNode);
-    
-    strcpy(newNode->dir_name,path+i+1);
-    //printf("84 ---- %s\n",newNode->dir_name);
-
-    DirectoryTree tempNode;
-    //tempNode.dir_name[0] = '\0';
-    DirectoryTree* tempP = &tempNode;
-    DirectoryTree* t_p = tempP;
-    tempP->brother = node->nextLayer;
-    while(tempP->brother){
-        
-        if(strcmp(tempP->brother->dir_name,newNode->dir_name) == 0){
-            /*
-            free(newNode->fd);
-            free(newNode);
-
-            newNode = NULL;
-            */
-            freeDirNode(&newNode);
-            return NULL;
+void createDirNode(TOID(struct DirectoryTree)* node, int mark){
+    // TODO: add the FileDescriptor 
+    TX_BEGIN(DirectoryTreePop){
+        //TX_ADD(*node);
+        *node = TX_NEW(struct DirectoryTree);
+        D_RW(*node)->nextLayer = TOID_NULL(struct DirectoryTree);
+        D_RW(*node)->brother = TOID_NULL(struct DirectoryTree);
+        if(mark){
+            D_RW(*node)->fd = TX_NEW(struct FileDescriptor);
+            D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+        }else{
+            D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
         }
-        
-        tempP = tempP->brother;
-    }
-    tempP->brother = newNode;
-    node->nextLayer = t_p->brother;
-    (node->fd->f_size)++;
 
-    return newNode;
+    }TX_END
 }
-
-void eraseTree(DirectoryTree** root){
-    if(*root){
-        DirectoryTree* temp = (*root)->nextLayer;
-        /*
-        free((*root)->fd);
-        free(*root);
-        *root = NULL;
-        */
-        freeDirNode(root);
-        while(temp){
-            DirectoryTree* t = temp;
-            eraseTree(&t);
-            temp = temp->brother;
+void freeDirNode(TOID(struct DirectoryTree)* node){
+    // TODO: add the FileDescriptor
+    TX_BEGIN(DirectoryTreePop){
+        //TX_ADD(*node);
+        if(!TOID_IS_NULL(D_RW(*node)->fd)){
+            TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
+            D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+            TX_FREE(D_RW(*node)->fd);
+            D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
         }
-    }
+        TX_FREE(*node);
+        *node = TOID_NULL(struct DirectoryTree);
+    }TX_END
 }
 
 void getFatherCurPath(char* f_dst,char* s_dst,const char* path){
-    if(strcmp(path,"/") == 0){
+        if(strcmp(path,"/") == 0){
         strcpy(f_dst,path);
         return;
     }
@@ -162,8 +79,94 @@ void getFatherCurPath(char* f_dst,char* s_dst,const char* path){
     strncpy(s_dst,path+i+1, strlen(path)  - i);
 }
 
-int eraseNode(DirectoryTree** root, const char* path){
-    if(strcmp((*root)->dir_name,"/") == 0 && strcmp(path,"/") == 0){
+TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path){
+
+    if(TOID_IS_NULL(root)) return TOID_NULL(struct DirectoryTree);
+    if(path[0] == '/' && strcmp(D_RW(root)->dir_name,"/") == 0){
+        if(strcmp(path,"/") == 0 ) return root;
+        return find(D_RW(root)->nextLayer,path+1);
+    }else{
+        int i= 0;
+        char tempName[MAX_FILE_NAME_LENGTH] = {'\0'};
+        while(*path != '/' && *path){
+            tempName[i] = *path;
+            path++;
+            i++;
+        }
+        tempName[i] = '\0';
+        TOID(struct DirectoryTree) head = root;
+        
+        while(!TOID_IS_NULL(head)){
+            if(strcmp(D_RW(head)->dir_name,tempName) == 0){
+                break;
+            }
+            head = D_RW(head)->brother;
+        }
+        if( !*path || TOID_IS_NULL(head)){// encounter the '/0' or don't exist such directory or file
+            return head;
+        }
+        return find(D_RW(head)->nextLayer,path+1); // +1 to eliminate the '/' 
+    }
+}
+TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark){
+     if(strcmp(path,"/") == 0 && TOID_IS_NULL(*root)){
+        createDirNode(root,mark);
+        strcpy(D_RW(*root)->dir_name,"/");
+        return *root;
+    }
+
+    char temp[MAX_FILE_NAME_LENGTH];
+    int i;
+    for(i=strlen(path)-1;i>=0 && path[i] != '/';--i){
+    }
+    int flag = i == 0?1: 0;
+    
+    for(int j=0;j<i+flag;++j){
+        temp[j] = path[j];
+    }
+    temp[i+flag] = '\0';
+    TOID(struct DirectoryTree) node = find(*root,temp);
+    if(TOID_IS_NULL(node)){
+        return node;
+    }
+    // TODO: should consider the atomic
+    TOID(struct DirectoryTree) newNode;
+    createDirNode(&newNode,mark);
+    strcpy(D_RW(newNode)->dir_name,path+i+1);
+    TOID(struct DirectoryTree) tempP;
+    createDirNode(&tempP,mark);
+
+    TOID(struct DirectoryTree) t_p = tempP;
+    D_RW(tempP)->brother = D_RW(node)->nextLayer;
+
+    while(!TOID_IS_NULL(D_RW(tempP)->brother)){
+        if(strcmp(D_RW(D_RW(tempP)->brother)->dir_name,D_RW(newNode)->dir_name) == 0){
+            freeDirNode(&newNode);
+            return TOID_NULL(struct DirectoryTree);
+        }
+        tempP = D_RW(tempP)->brother;
+    }
+    D_RW(tempP)->brother = newNode;
+    D_RW(node)->nextLayer = D_RW(t_p)->brother;
+
+    freeDirNode(&t_p);
+    return newNode;
+}
+void eraseTree(TOID(struct DirectoryTree)* root){
+    if(!TOID_IS_NULL(*root)){
+        TOID(struct DirectoryTree) temp = D_RW(*root)->nextLayer;
+    
+        freeDirNode(root);
+        while(!TOID_IS_NULL(temp)){
+            TOID(struct DirectoryTree) t = temp;
+            eraseTree(&t);
+            temp = D_RW(temp)->brother;
+        }
+    }
+}
+
+int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
+    if(strcmp(D_RW(*root)->dir_name,"/") == 0 && strcmp(path,"/") == 0){
         eraseTree(root);
         return 1;
     }
@@ -171,65 +174,94 @@ int eraseNode(DirectoryTree** root, const char* path){
     char father[MAX_FILE_NAME_LENGTH] = {'\0'};
     char son[MAX_FILE_NAME_LENGTH] = {'\0'};
     getFatherCurPath(father,son,path);
-    //printf("f:%s, %s\n",father,son);
-    DirectoryTree* node =  find(*root,father); // find its father
-    if(node == NULL) return -1; // failure
+    
+    TOID(struct DirectoryTree) node =  find(*root,father); // find its father
+    //printf("141----%s\n",father);
+    if(TOID_IS_NULL(node)) return -1; // failure
 
-    DirectoryTree tempNode;
-    DirectoryTree* tempP = &tempNode;
-    DirectoryTree* t_p = tempP;
-    tempP->brother = node->nextLayer;
-    DirectoryTree* head = node->nextLayer;
-    while(head && strcmp(head->dir_name,son)){
-        tempP = tempP->brother;
-        head = head->brother;
+    TOID(struct DirectoryTree) tempP;
+    createDirNode(&tempP,0);
+    TOID(struct DirectoryTree) t_p = tempP;
+    D_RW(tempP)->brother = D_RW(node)->nextLayer;
+    TOID(struct DirectoryTree) head = D_RW(node)->nextLayer;
+
+    while(!TOID_IS_NULL(head) && strcmp(D_RW(head)->dir_name,son)){
+        tempP = D_RW(tempP)->brother;
+        head = D_RW(head)->brother;
     }
-    if(head == NULL) return -1;
-    tempP->brother = head->brother;
-    node->nextLayer = t_p->brother;
-    (node->fd->f_size)--;  // directory size decrease
+    if(TOID_IS_NULL(head)) return -1;
+    D_RW(tempP)->brother = D_RW(head)->brother;
+    D_RW(node)->nextLayer = D_RW(t_p)->brother;
+    //(node->fd->f_size)--;  // directory size decrease
     eraseTree(&head);
+    freeDirNode(&t_p);
     return 1;
 }
-
-void PrintTree(DirectoryTree* root){
-    if(root){
-        DirectoryTree* head = root;
-        while(head){
-            printf("name: --- %s\n",head->dir_name);
-            PrintTree(head->nextLayer);
+void PrintTree(TOID(struct DirectoryTree) root){
+    if(!TOID_IS_NULL(root)){
+        TOID(struct DirectoryTree) head = root;
+        while(!TOID_IS_NULL(head)){
+            printf("name: --- %s\n",D_RW(head)->dir_name);
+            PrintTree(D_RW(head)->nextLayer);
             printf("-----\n");
-            head = head->brother;
+            head = D_RW(head)->brother;
         }
     }
 }
 
-
-
-
-
-#ifdef __NAME__MAIN_TEST__
+#ifdef __NAME__MAIN__TEST__
 int main(){
-    DirectoryTree* root = NULL;
-    DirectoryTree* node = NULL;
-    node = add(&root,"/");
-    node = add(&root,"/a");
-    node = add(&root,"/a/b");
-    node = add(&root,"/c");
-    node = add(&root,"/d");
-    node = add(&root,"/c/a");
-    node = add(&root,"/d/wyk");
-    node = add(&root,"/d/wxr");
-    node = add(&root,"/d/xr");
-    if((node = add(&root,"/d/xr")) == NULL) printf("error! exits!\n");
-    if((node = add(&root,"/d/wyk/like/xr")) == NULL) printf("error! \n");
-    PrintTree(root);
-    if(eraseNode(&root,"/www")>0){
-        printf("success\n");
+    char file_name[] = LAYOUT_NAME;
+    DirectoryTreePop = pmemobj_open(file_name,LAYOUT_NAME);
+    TOID(struct MyRoot) root_obj;
+    TOID(struct DirectoryTree) root;
+
+    int mark = 0;
+
+    if(DirectoryTreePop == NULL){
+        DirectoryTreePop = pmemobj_create(file_name,LAYOUT_NAME, PMEMOBJ_MIN_POOL,0666);
+        if(DirectoryTreePop == NULL){
+            perror("pmemobj_create");
+            return 1;
+        }
+        root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
+        root = TOID_NULL(struct DirectoryTree);
+        D_RW(root_obj)->root = root;
+        TOID(struct DirectoryTree) node = TOID_NULL(struct DirectoryTree);
+        node = add(&root,"/",mark);
+        node = add(&root,"/a",mark);
+        node = add(&root,"/a/b",mark);
+        node = add(&root,"/c",mark);
+        node = add(&root,"/d",mark);
+        node = add(&root,"/c/a",mark);
+        node = add(&root,"/d/wyk",mark);
+        node = add(&root,"/d/wxr",mark);
+        node = add(&root,"/d/xr",mark);
+        if(TOID_IS_NULL(node = add(&root,"/d/xr",mark))) printf("error! exits!\n");
+        if(TOID_IS_NULL(node = add(&root,"/d/wyk/like/xr",mark))) printf("error! \n");
         PrintTree(root);
+        if(eraseNode(&root,"/d")>0){
+            printf("success\n");
+            PrintTree(root);
+        }else{
+            printf("error!\n");
+            PrintTree(root);
+        }
+        D_RW(root_obj)->root = root;
     }else{
-        printf("error!\n");
+        root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
+        root = D_RW(root_obj)->root;
+        printf("250---------\n");
+        if(eraseNode(&root,"/")>0){
+            printf("success\n");
+            PrintTree(root);
+        }else{
+            printf("error!\n");
+            PrintTree(root);
+        }
         PrintTree(root);
     }
+    
+    pmemobj_close(DirectoryTreePop);
 }
 #endif
