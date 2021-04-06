@@ -5,9 +5,9 @@
 */
 #include "util.h"
 
-void control_init(const char* root_path);
-int isFlush(TOID(struct DirectoryTree) node);
-void flush_to_disk(TOID(struct DirectoryTree)* root);
-void load_to_pmem(TOID(struct DirectoryTree)* root, const char* path);
+void control_init(TOID(struct DirectoryTree)* root, const char* pool_file_name,const char* root_path);
+int isFlushLoad(TOID(struct DirectoryTree) node);
+void flush_load(TOID(struct DirectoryTree)* root);
+
 
 #endif

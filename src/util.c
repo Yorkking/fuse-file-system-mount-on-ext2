@@ -41,6 +41,11 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
         if(mark){
             D_RW(*node)->fd = TX_NEW(struct FileDescriptor);
             D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+
+            D_RW(D_RW(*node)->fd)->alg_cnt = 0;
+            D_RW(D_RW(*node)->fd)->dirty = 0;
+            D_RW(D_RW(*node)->fd)->f_size = 0;
+            D_RW(D_RW(*node)->fd)->isInDisk = 0;
         }else{
             D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
         }
@@ -66,16 +71,32 @@ void freeFileContent(TOID(struct DirectoryTree)* node){
     TX_BEGIN(DirectoryTreePop){
         TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
         D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+        D_RW(D_RW(*node)->fd)->isInDisk = 1;
     }TX_END
     
 }
 
-void writeToFileContent(TOID(struct DirectoryTree)* node, char* buffer, int size){
+void writeToFileContent(TOID(struct DirectoryTree)* node, const char* buffer, int size){
     // TODO: dynamic size of file
     if(TOID_IS_NULL(D_RW(D_RW(*node)->fd)->c_p)){
         TX_BEGIN(DirectoryTreePop){
             D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
             strcpy(D_RW(D_RW(D_RW(*node)->fd)->c_p)->content,buffer);
+
+            D_RW(D_RW(*node)->fd)->f_size = size;
+            // for algorithm
+            D_RW(D_RW(*node)->fd)->dirty = 1;
+            D_RW(D_RW(*node)->fd)->alg_cnt += 2;
+        }TX_END
+    }else{
+        TX_BEGIN(DirectoryTreePop){
+            strcpy(D_RW(D_RW(D_RW(*node)->fd)->c_p)->content,buffer);
+
+            D_RW(D_RW(*node)->fd)->f_size = size;
+            
+            // for algorithm
+            D_RW(D_RW(*node)->fd)->dirty = 1;
+            D_RW(D_RW(*node)->fd)->alg_cnt += 2;
         }TX_END
     }
 }
@@ -129,12 +150,15 @@ TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path
 }
 /* mark == 1 for file, 0 for directory */
 TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark){
-     if(strcmp(path,"/") == 0 && TOID_IS_NULL(*root)){
-        createDirNode(root,mark);
-        strcpy(D_RW(*root)->dir_name,"/");
-        return *root;
+     if(strcmp(path,"/") == 0){
+        if(TOID_IS_NULL(*root)){
+            createDirNode(root,mark);
+            strcpy(D_RW(*root)->dir_name,"/");
+            return *root;
+        }else{
+            return TOID_NULL(struct DirectoryTree);
+        }
     }
-
     char temp[MAX_FILE_NAME_LENGTH];
     int i;
     for(i=strlen(path)-1;i>=0 && path[i] != '/';--i){
@@ -217,13 +241,17 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
     freeDirNode(&t_p);
     return 1;
 }
-void PrintTree(TOID(struct DirectoryTree) root){
+void printTree(TOID(struct DirectoryTree) root){
     if(!TOID_IS_NULL(root)){
         TOID(struct DirectoryTree) head = root;
         while(!TOID_IS_NULL(head)){
-            printf("name: --- %s\n",D_RW(head)->dir_name);
-            PrintTree(D_RW(head)->nextLayer);
-            printf("-----\n");
+            if(dirOrFileNode(head) == 0){
+                printf("dir name: %s\n",D_RW(head)->dir_name);
+                printTree(D_RW(head)->nextLayer);
+                printf("-----\n");
+            }
+            else printf("--file name:%s, algcnt: %d, dirty: %d, isDisk: %d\n",D_RW(head)->dir_name, 
+                    D_RW(D_RW(head)->fd)->alg_cnt,D_RW(D_RW(head)->fd)->dirty, D_RW(D_RW(head)->fd)->isInDisk);
             head = D_RW(head)->brother;
         }
     }
@@ -231,6 +259,9 @@ void PrintTree(TOID(struct DirectoryTree) root){
 /* return 0 for dir, 1 for file */
 int dirOrFileNode(TOID(struct DirectoryTree) node){
     return TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1;
+}
+void resetAlg(TOID(struct DirectoryTree)* root){
+    D_RW(D_RW(*root)->fd)->alg_cnt = 0;
 }
 
 #ifdef __NAME__MAIN__TEST__
@@ -263,13 +294,13 @@ int main(){
         node = add(&root,"/d/xr",mark);
         if(TOID_IS_NULL(node = add(&root,"/d/xr",mark))) printf("error! exits!\n");
         if(TOID_IS_NULL(node = add(&root,"/d/wyk/like/xr",mark))) printf("error! \n");
-        PrintTree(root);
+        printTree(root);
         if(eraseNode(&root,"/d")>0){
             printf("success\n");
-            PrintTree(root);
+            printTree(root);
         }else{
             printf("error!\n");
-            PrintTree(root);
+            printTree(root);
         }
         D_RW(root_obj)->root = root;
     }else{
@@ -278,12 +309,12 @@ int main(){
         printf("260---------\n");
         if(eraseNode(&root,"/")>0){
             printf("success\n");
-            PrintTree(root);
+            printTree(root);
         }else{
             printf("error!\n");
-            PrintTree(root);
+            printTree(root);
         }
-        PrintTree(root);
+        printTree(root);
     }
     
     pmemobj_close(DirectoryTreePop);

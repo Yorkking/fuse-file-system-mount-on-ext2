@@ -31,6 +31,7 @@ typedef struct FileDescriptor{
     int alg_cnt; // cnt for the replace algorithm
     TOID(struct Content) c_p; 
     int f_size; 
+    int dirty;
     int isInDisk; // 0 indicate the file in pmem, 1 indicate in disk
 }FileDescriptor;
 
@@ -50,11 +51,12 @@ void getFatherCurPath(char* f_dst,char* s_dst,const char* path);
 TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path);
 TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark);
 int eraseNode(TOID(struct DirectoryTree)* root, const char* path);
-void PrintTree(TOID(struct DirectoryTree) root);
+void printTree(TOID(struct DirectoryTree) root);
 int dirOrFileNode(TOID(struct DirectoryTree) node);
 void freeFileContent(TOID(struct DirectoryTree)* node);
-void writeToFileContent(TOID(struct DirectoryTree)* node, char* buffer, int size);
-
+void writeToFileContent(TOID(struct DirectoryTree)* node, const char* buffer, int size);
 void init(TOID(struct DirectoryTree)* root, const char* pool_file_name);
+
+void resetAlg(TOID(struct DirectoryTree)* root);
 
 #endif

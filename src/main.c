@@ -9,8 +9,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <pthread.h>
 
-#include "util.h"
+#include "control.h"
 
 TOID(struct DirectoryTree) root;
 
@@ -69,6 +70,7 @@ static int do_read( const char *path, char *buffer, size_t size, off_t offset, s
 	TOID(struct DirectoryTree) node = find(root,path);
 	if(!TOID_IS_NULL(node)){
 		memcpy(buffer,D_RW(D_RW(D_RW(node)->fd)->c_p)->content + offset,size);
+		D_RW(D_RW(node)->fd)->alg_cnt += 1;
 		return D_RW(D_RW(node)->fd)->f_size - offset;
 	}
 	return -ENOENT;
@@ -88,13 +90,11 @@ static int do_mkdir( const char *path, mode_t mode ){
 
 static int do_mknod( const char *path, mode_t mode, dev_t rdev ){
 	//printf("do_mknod %s\n",path);
-
 	// TODO: judge if path is legal
 	TOID(struct DirectoryTree) node = add(&root,path,1);
 	if(! TOID_IS_NULL(node)){
 		//node->fd->mark = 1;
 		D_RW(D_RW(node)->fd)->f_size = 0;
-		
 	}else{
 		return -ENONET;
 	}
@@ -102,7 +102,6 @@ static int do_mknod( const char *path, mode_t mode, dev_t rdev ){
 }
 
 static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info ){
-   
 	// write_to_file( path, buffer );
 	// @alpha 1.1: over write
 	TOID(struct DirectoryTree) node = find(root,path);
@@ -110,17 +109,12 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		//printf("207-----%s\n",path);
 		node = add(&root,path,1);
 		if(! TOID_IS_NULL(node)){
-			//node->fd->mark = 1;
-			D_RW(D_RW(node)->fd)->f_size = size;
-			strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
+			writeToFileContent(&node,buffer,size);
 		}else{
-
 			return -ENONET;
 		}
 	}else{
-		D_RW(D_RW(node)->fd)->f_size = size;
-		//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
-		strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
+		writeToFileContent(&node,buffer,size);
 	}
 	return size;
 }
@@ -146,9 +140,25 @@ static struct fuse_operations operations = {
 	.rmdir = do_rmdir,
 };
 
-int main( int argc, char *argv[] ){
+void* schedule(){
+	int seconds = 60;
+	while(1){
+		sleep(seconds);
+		// should consider mutex
+		flush_load(&root);
+	}
+}
 
-    init(&root);
-	fuse_main( argc, argv, &operations, NULL );
+int main( int argc, char *argv[] ){
+	const char* pool_file_name =  "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem";
+	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/tmp_fs";
+    control_init(&root,pool_file_name, root_path);
+	pthread_t thread;
+	int rc = pthread_create(&thread,NULL,schedule,NULL);
+	if(rc){
+		printf("Error:unable to create thread, %d\n", rc);
+        exit(-1);
+	}
+	fuse_main( argc, argv, &operations, NULL ); 
 	return 0;
 }
