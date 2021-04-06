@@ -9,8 +9,10 @@ main: $(OBJ)
 
 main.o: main.c control.h
 	$(CC) -c main.c $(FUSE_FLAG)
+
 control.o: control.c control.h util.h
 	$(CC) -c control.c $(PMDK_FLAG)
+	
 util.o: util.c util.h
 	$(CC) -c util.c $(PMDK_FLAG)
 
