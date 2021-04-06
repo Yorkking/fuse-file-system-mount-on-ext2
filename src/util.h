@@ -3,7 +3,7 @@
 
 #include <libpmemobj.h>
 
-#define MAX_FILE_NAME_LENGTH 50
+#define MAX_FILE_NAME_LENGTH 128
 
 #ifndef CONTENT_LENGTH
 #define CONTENT_LENGTH 128
@@ -21,20 +21,23 @@ POBJ_LAYOUT_END(directory_tree);
 // TODO: should move to pmem
 typedef struct Content{
     char content[CONTENT_LENGTH];
+    // TODO: the length of file can be increased
+    //TOID(struct Content) next;
 }Content;
 
 // TODO: should move to pmem
-typedef struct FileDescriptor{
-    //int mark; // 1 for file, 0 for directory 
+typedef struct FileDescriptor{ 
     // TODO: other attributes shoule be considered
+    int alg_cnt; // cnt for the replace algorithm
     TOID(struct Content) c_p; 
     int f_size; 
+    int isInDisk; // 0 indicate the file in pmem, 1 indicate in disk
 }FileDescriptor;
 
 typedef struct DirectoryTree{
     char dir_name[MAX_FILE_NAME_LENGTH];
     // TODO: file descriptor
-    TOID(struct FileDescriptor) fd;
+    TOID(struct FileDescriptor) fd; // NULL for directory, else for file
     TOID(struct DirectoryTree) nextLayer;
     TOID(struct DirectoryTree) brother;
 }DirectoryTree;
@@ -48,7 +51,10 @@ TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path
 TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark);
 int eraseNode(TOID(struct DirectoryTree)* root, const char* path);
 void PrintTree(TOID(struct DirectoryTree) root);
+int dirOrFileNode(TOID(struct DirectoryTree) node);
+void freeFileContent(TOID(struct DirectoryTree)* node);
+void writeToFileContent(TOID(struct DirectoryTree)* node, char* buffer, int size);
 
-void init();
+void init(TOID(struct DirectoryTree)* root, const char* pool_file_name);
 
 #endif

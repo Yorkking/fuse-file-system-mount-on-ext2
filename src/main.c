@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
+
 #include "util.h"
 
 TOID(struct DirectoryTree) root;
@@ -39,9 +40,7 @@ static int do_getattr( const char *path, struct stat *st ){
 		st->st_mode = S_IFREG | 0644;
 		st->st_nlink = 1;
 		st->st_size = 1024;
-	}
-	else
-	{
+	}else{
 		return -ENOENT;
 	};
 	return 0;
@@ -81,9 +80,6 @@ static int do_mkdir( const char *path, mode_t mode ){
 	// TODO: judge if path is legal
 	TOID(struct DirectoryTree) node =  add(&root,path,0);
 	if(!TOID_IS_NULL(node)){
-		//D_RW(node)->fd->mark = 0;
-		// node->fd->f_size = 0;
-		// node->fd->c_p = NULL;
 		return 0;
 	}else{
 		return -ENOENT;
@@ -116,16 +112,12 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		if(! TOID_IS_NULL(node)){
 			//node->fd->mark = 1;
 			D_RW(D_RW(node)->fd)->f_size = size;
-			//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
-			//printf("212-----%s\n",node->dir_name);
 			strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
-			//printf("214-----%s\n",node->fd->c_p->content);
 		}else{
 
 			return -ENONET;
 		}
 	}else{
-		//printf("221-----%s\n",path);
 		D_RW(D_RW(node)->fd)->f_size = size;
 		//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
 		strcpy(D_RW(D_RW(D_RW(node)->fd)->c_p)->content,buffer);
@@ -157,8 +149,6 @@ static struct fuse_operations operations = {
 int main( int argc, char *argv[] ){
 
     init(&root);
-	// TOID(struct DirectoryTree) node = add(&root,"/");
-	//PrintTree(root);
 	fuse_main( argc, argv, &operations, NULL );
 	return 0;
 }

@@ -5,11 +5,11 @@
 
 //#define __NAME__MAIN__TEST__
 
-#define pool_file_name "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem"
+//#define pool_file_name "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem"
 
 PMEMobjpool* DirectoryTreePop;
 
-void init(TOID(struct DirectoryTree)* root){
+void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
     DirectoryTreePop = pmemobj_open(pool_file_name, LAYOUT_NAME);
     if(DirectoryTreePop == NULL){
         DirectoryTreePop = pmemobj_create(pool_file_name,LAYOUT_NAME, PMEMOBJ_MIN_POOL,0666);
@@ -30,8 +30,9 @@ void init(TOID(struct DirectoryTree)* root){
 
     return;
 }
+/* mark == 1 for file, 0 for directory */
 void createDirNode(TOID(struct DirectoryTree)* node, int mark){
-    // TODO: add the FileDescriptor 
+    // TODO: add the FileDescriptor , done
     TX_BEGIN(DirectoryTreePop){
         //TX_ADD(*node);
         *node = TX_NEW(struct DirectoryTree);
@@ -47,7 +48,7 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
     }TX_END
 }
 void freeDirNode(TOID(struct DirectoryTree)* node){
-    // TODO: add the FileDescriptor
+    // TODO: add the FileDescriptor, done
     TX_BEGIN(DirectoryTreePop){
         //TX_ADD(*node);
         if(!TOID_IS_NULL(D_RW(*node)->fd)){
@@ -59,6 +60,24 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
         TX_FREE(*node);
         *node = TOID_NULL(struct DirectoryTree);
     }TX_END
+}
+
+void freeFileContent(TOID(struct DirectoryTree)* node){
+    TX_BEGIN(DirectoryTreePop){
+        TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
+        D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+    }TX_END
+    
+}
+
+void writeToFileContent(TOID(struct DirectoryTree)* node, char* buffer, int size){
+    // TODO: dynamic size of file
+    if(TOID_IS_NULL(D_RW(D_RW(*node)->fd)->c_p)){
+        TX_BEGIN(DirectoryTreePop){
+            D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+            strcpy(D_RW(D_RW(D_RW(*node)->fd)->c_p)->content,buffer);
+        }TX_END
+    }
 }
 
 void getFatherCurPath(char* f_dst,char* s_dst,const char* path){
@@ -108,6 +127,7 @@ TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path
         return find(D_RW(head)->nextLayer,path+1); // +1 to eliminate the '/' 
     }
 }
+/* mark == 1 for file, 0 for directory */
 TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark){
      if(strcmp(path,"/") == 0 && TOID_IS_NULL(*root)){
         createDirNode(root,mark);
@@ -208,6 +228,10 @@ void PrintTree(TOID(struct DirectoryTree) root){
         }
     }
 }
+/* return 0 for dir, 1 for file */
+int dirOrFileNode(TOID(struct DirectoryTree) node){
+    return TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1;
+}
 
 #ifdef __NAME__MAIN__TEST__
 int main(){
@@ -251,7 +275,7 @@ int main(){
     }else{
         root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
         root = D_RW(root_obj)->root;
-        printf("250---------\n");
+        printf("260---------\n");
         if(eraseNode(&root,"/")>0){
             printf("success\n");
             PrintTree(root);
