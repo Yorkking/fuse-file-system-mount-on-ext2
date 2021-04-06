@@ -129,6 +129,40 @@ void flush_load(TOID(struct DirectoryTree)* root){
     help_flush_load(root,__recur_temp__);
 }
 
+int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char* buffer, size_t size, off_t offset){
+    if(D_RW(D_RW(node)->fd)->isInDisk == 0){
+        memcpy(buffer,D_RW(D_RW(D_RW(node)->fd)->c_p)->content + offset,size);
+		D_RW(D_RW(node)->fd)->alg_cnt += 1;
+		return D_RW(D_RW(node)->fd)->f_size - offset;
+    }else{
+        char temp[MAX_FILE_NAME_LENGTH * 5];
+        strcpy(temp,__ROOT_PATH__);
+        strcat(temp,path);
+        FILE* fp = fopen(temp,"r");
+        if(fp != NULL){
+            fread(buffer,sizeof(char),D_RW((D_RW(node)->fd))->f_size, fp);
+            fclose(fp);
+            D_RW(D_RW(node)->fd)->alg_cnt += 1;
+		    return D_RW(D_RW(node)->fd)->f_size - offset;
+        }
+    }
+}
+int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const char* buffer, size_t size, off_t offset){
+    if(D_RW(D_RW(*node)->fd)->isInDisk == 0){
+        writeToFileContent(node,buffer,size);
+    }else{
+        char temp[MAX_FILE_NAME_LENGTH * 5];
+        strcpy(temp,__ROOT_PATH__);
+        strcat(temp,path);
+        FILE* fp = fopen(path,"w");
+        if(fp != NULL){
+            fwrite(buffer,sizeof(char),size, fp);
+            fclose(fp);
+            D_RW(D_RW(*node)->fd)->f_size = size;
+        }
+    }
+}
+
 #ifdef __CONTROL_C_TEST__
 void help_write(TOID(struct DirectoryTree)* root, const char* path, char* buffer){
     TOID(struct DirectoryTree) node = find(*root,path);

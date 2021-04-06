@@ -9,5 +9,7 @@ void control_init(TOID(struct DirectoryTree)* root, const char* pool_file_name,c
 int isFlushLoad(TOID(struct DirectoryTree) node);
 void flush_load(TOID(struct DirectoryTree)* root);
 
-
+int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, 
+                    const char* buffer, size_t size, off_t offset);
+int read_from_pmem_disk(TOID(struct DirectoryTree), const char*, char*, size_t, off_t);
 #endif

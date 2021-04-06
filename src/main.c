@@ -69,9 +69,7 @@ static int do_read( const char *path, char *buffer, size_t size, off_t offset, s
     //printf("do_read %s\n",path);
 	TOID(struct DirectoryTree) node = find(root,path);
 	if(!TOID_IS_NULL(node)){
-		memcpy(buffer,D_RW(D_RW(D_RW(node)->fd)->c_p)->content + offset,size);
-		D_RW(D_RW(node)->fd)->alg_cnt += 1;
-		return D_RW(D_RW(node)->fd)->f_size - offset;
+		return read_from_pmem_disk(node,path,buffer,size,offset);
 	}
 	return -ENOENT;
 	
@@ -109,12 +107,12 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		//printf("207-----%s\n",path);
 		node = add(&root,path,1);
 		if(! TOID_IS_NULL(node)){
-			writeToFileContent(&node,buffer,size);
+			write_to_pmem_disk(&node,path,buffer,size,offset);
 		}else{
 			return -ENONET;
 		}
 	}else{
-		writeToFileContent(&node,buffer,size);
+		write_to_pmem_disk(&node,path,buffer,size,offset);
 	}
 	return size;
 }
@@ -157,7 +155,7 @@ int main( int argc, char *argv[] ){
 	int rc = pthread_create(&thread,NULL,schedule,NULL);
 	if(rc){
 		printf("Error:unable to create thread, %d\n", rc);
-        exit(-1);
+		exit(-1);
 	}
 	fuse_main( argc, argv, &operations, NULL ); 
 	return 0;
