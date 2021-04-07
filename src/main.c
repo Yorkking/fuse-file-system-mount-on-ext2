@@ -107,23 +107,22 @@ static int do_write( const char *path, const char *buffer, size_t size, off_t of
 		//printf("207-----%s\n",path);
 		node = add(&root,path,1);
 		if(! TOID_IS_NULL(node)){
-			write_to_pmem_disk(&node,path,buffer,size,offset);
+			return write_to_pmem_disk(&node,path,buffer,size,offset);
 		}else{
 			return -ENONET;
 		}
 	}else{
-		write_to_pmem_disk(&node,path,buffer,size,offset);
+		return write_to_pmem_disk(&node,path,buffer,size,offset);
 	}
-	return size;
 }
 
 static int do_unlink(const char* path){
-	int flag = eraseNode(&root,path);
+	int flag = erase_file(&root,path);
 	if(flag < 0) -ENONET;
 	return 0;
 }
 static int do_rmdir(const char* path){
-	int flag = eraseNode(&root,path);
+	int flag = erase_dir(&root,path);
 	if(flag < 0) -ENONET;
 	return 0;
 }

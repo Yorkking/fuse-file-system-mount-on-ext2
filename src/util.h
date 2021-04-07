@@ -6,7 +6,7 @@
 #define MAX_FILE_NAME_LENGTH 128
 
 #ifndef CONTENT_LENGTH
-#define CONTENT_LENGTH 128
+#define CONTENT_LENGTH 512
 #endif
 
 #define LAYOUT_NAME "test_directory_tree"
@@ -22,7 +22,7 @@ POBJ_LAYOUT_END(directory_tree);
 typedef struct Content{
     char content[CONTENT_LENGTH];
     // TODO: the length of file can be increased
-    //TOID(struct Content) next;
+    TOID(struct Content) next;
 }Content;
 
 // TODO: should move to pmem
@@ -56,6 +56,9 @@ int dirOrFileNode(TOID(struct DirectoryTree) node);
 void freeFileContent(TOID(struct DirectoryTree)* node);
 void writeToFileContent(TOID(struct DirectoryTree)* node, const char* buffer, int size);
 void init(TOID(struct DirectoryTree)* root, const char* pool_file_name);
+
+int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset);
+int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset);
 
 void resetAlg(TOID(struct DirectoryTree)* root);
 

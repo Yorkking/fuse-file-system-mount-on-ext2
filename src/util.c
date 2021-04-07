@@ -40,7 +40,10 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
         D_RW(*node)->brother = TOID_NULL(struct DirectoryTree);
         if(mark){
             D_RW(*node)->fd = TX_NEW(struct FileDescriptor);
-            D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+
+            //D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+            //D_RW(D_RW(D_RW(*node)->fd)->c_p)->next = TOID_NULL(struct Content);
+            D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
 
             D_RW(D_RW(*node)->fd)->alg_cnt = 0;
             D_RW(D_RW(*node)->fd)->dirty = 0;
@@ -57,8 +60,19 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
     TX_BEGIN(DirectoryTreePop){
         //TX_ADD(*node);
         if(!TOID_IS_NULL(D_RW(*node)->fd)){
+
+            TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
+            while(!TOID_IS_NULL(head)){
+                TOID(struct Content) temp = head;
+                head = D_RW(head)->next;
+                TX_FREE(temp);
+                temp = TOID_NULL(struct Content);
+            }
+            /*
             TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
             D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+            */
+
             TX_FREE(D_RW(*node)->fd);
             D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
         }
@@ -69,11 +83,102 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
 
 void freeFileContent(TOID(struct DirectoryTree)* node){
     TX_BEGIN(DirectoryTreePop){
-        TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
-        D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+        TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
+        while(!TOID_IS_NULL(head)){
+            TOID(struct Content) temp = head;
+            head = D_RW(head)->next;
+            TX_FREE(temp);
+            temp = TOID_NULL(struct Content);
+        }
         D_RW(D_RW(*node)->fd)->isInDisk = 1;
-    }TX_END
-    
+    }TX_END  
+}
+int getContentBlocks(int f_size){
+    return f_size / CONTENT_LENGTH + ((f_size % CONTENT_LENGTH == 0) ? 0 : 1);
+}
+int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset){
+    int f_size = D_RW(D_RW(*node)->fd)->f_size;
+    if(offset > f_size) {
+        offset = f_size;
+    }
+    int file_length = offset + size;
+    int cur_blocks = getContentBlocks(f_size);
+    int need_blocks = getContentBlocks(file_length) - cur_blocks;
+
+    // allocate storage space
+    TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
+    TOID(struct Content) tail = TOID_NULL(struct Content);
+    while(!TOID_IS_NULL(head)){
+        if(TOID_IS_NULL(tail)) tail = head;
+        head = D_RW(head)->next;
+    }
+    if(TOID_IS_NULL(tail)){
+         TX_BEGIN(DirectoryTreePop){
+            tail = TX_NEW(struct Content);
+            D_RW(D_RW(*node)->fd)->c_p = tail;
+        }TX_END
+        need_blocks--;
+    }
+    while(need_blocks--){
+        TX_BEGIN(DirectoryTreePop){
+            TOID(struct Content) tmp_node = TX_NEW(struct Content);
+            D_RW(tail)->next = tmp_node;
+            tail =  D_RW(tail)->next;
+        }TX_END
+    }
+    // write to pmem
+    head = D_RW(D_RW(*node)->fd)->c_p;
+    int cur = 0;
+    int buffer_cur_idx = 0;
+    while(!TOID_IS_NULL(head) && cur < offset + size){
+        if(cur <= offset && cur + CONTENT_LENGTH > offset){
+            int start_p = offset - cur;
+            int end_p = (offset + size) > (cur + CONTENT_LENGTH) ? CONTENT_LENGTH-1 : offset + size - 1 - cur;
+            memcpy(D_RW(head)->content + start_p, buffer,end_p - start_p + 1);
+            buffer_cur_idx += end_p - start_p + 1;
+        }else if(cur > offset && cur + CONTENT_LENGTH <= offset + size){
+            memcpy(D_RW(head)->content,buffer+buffer_cur_idx,CONTENT_LENGTH);
+            buffer_cur_idx += CONTENT_LENGTH;
+        }else if(cur > offset && cur + CONTENT_LENGTH > offset + size){
+            int end_p = offset + size -1 - cur;
+            memcpy(D_RW(head)->content, buffer+buffer_cur_idx,end_p+1);
+            buffer_cur_idx += end_p+1;
+        }
+        cur += CONTENT_LENGTH;
+        head = D_RW(head)->next;
+    }
+    D_RW(D_RW(*node)->fd)->f_size = f_size > offset + buffer_cur_idx ? f_size : offset + buffer_cur_idx;
+    D_RW(D_RW(*node)->fd)->dirty = 1;
+    return buffer_cur_idx;
+
+}
+
+int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset){
+
+    if(offset>D_RW(D_RW(*node)->fd)->f_size) return -1;
+    int f_size = D_RW(D_RW(*node)->fd)->f_size;
+    TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
+    int cur = 0;
+    int buffer_cur_idx = 0;
+    int last_size = offset + size >= f_size ? f_size : offset + size;
+    while(!TOID_IS_NULL(head) && cur < last_size){
+        if(cur <= offset && cur + CONTENT_LENGTH > offset){
+            int start_p = offset - cur;
+            int end_p = (last_size) > (cur + CONTENT_LENGTH) ? CONTENT_LENGTH-1 : last_size - 1 - cur;
+            memcpy(buffer,D_RW(head)->content + start_p, end_p - start_p + 1);
+            buffer_cur_idx += end_p - start_p + 1;
+        }else if(cur > offset && cur + CONTENT_LENGTH <= last_size){
+            memcpy(buffer+buffer_cur_idx,D_RW(head)->content,CONTENT_LENGTH);
+            buffer_cur_idx += CONTENT_LENGTH;
+        }else if(cur > offset && cur + CONTENT_LENGTH > last_size){
+            int end_p = last_size -1 - cur;
+            memcpy(buffer+buffer_cur_idx,D_RW(head)->content, end_p+1);
+            buffer_cur_idx += end_p+1;
+        }
+        cur += CONTENT_LENGTH;
+        head = D_RW(head)->next;
+    }
+    return buffer_cur_idx;
 }
 
 void writeToFileContent(TOID(struct DirectoryTree)* node, const char* buffer, int size){
@@ -148,6 +253,7 @@ TOID(struct DirectoryTree) find(TOID(struct DirectoryTree) root,const char* path
         return find(D_RW(head)->nextLayer,path+1); // +1 to eliminate the '/' 
     }
 }
+
 /* mark == 1 for file, 0 for directory */
 TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* path, int mark){
      if(strcmp(path,"/") == 0){
@@ -196,6 +302,7 @@ TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* pat
     freeDirNode(&t_p);
     return newNode;
 }
+
 void eraseTree(TOID(struct DirectoryTree)* root){
     if(!TOID_IS_NULL(*root)){
         TOID(struct DirectoryTree) temp = D_RW(*root)->nextLayer;
@@ -241,6 +348,7 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
     freeDirNode(&t_p);
     return 1;
 }
+
 void printTree(TOID(struct DirectoryTree) root){
     if(!TOID_IS_NULL(root)){
         TOID(struct DirectoryTree) head = root;
@@ -256,10 +364,12 @@ void printTree(TOID(struct DirectoryTree) root){
         }
     }
 }
+
 /* return 0 for dir, 1 for file */
 int dirOrFileNode(TOID(struct DirectoryTree) node){
     return TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1;
 }
+
 void resetAlg(TOID(struct DirectoryTree)* root){
     D_RW(D_RW(*root)->fd)->alg_cnt = 0;
 }
