@@ -9,23 +9,22 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include "util.h"
+#include <pthread.h>
 
-DirectoryTree* root;
-#define FILE_NUM 100
-Content file_nodes[FILE_NUM];
+#include "control.h"
+
+TOID(struct DirectoryTree) root;
 
 int isDirOrFile(const char *path){
-    DirectoryTree* node = find(root,path);
-	if(node == NULL) return -1; // don't exsit
-	return node->fd->mark; // 1 for file, 0 for directory
+    TOID(struct DirectoryTree) node = find(root,path);
+	if(TOID_IS_NULL(node)) return -1; // don't exsit
+	return TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1 ; // 1 for file, 0 for directory
 }
 
-int isLeagalPath(const char* path){
+int isLeagalPath(const char* path){ // TODO
 	return 1;
 }
-static int do_getattr( const char *path, struct stat *st )
-{
+static int do_getattr( const char *path, struct stat *st ){
     //printf("do_getattr %s\n",path);
     st->st_uid = getuid(); // The owner of the file/directory is the user who mounted the filesystem
 	st->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
@@ -42,9 +41,7 @@ static int do_getattr( const char *path, struct stat *st )
 		st->st_mode = S_IFREG | 0644;
 		st->st_nlink = 1;
 		st->st_size = 1024;
-	}
-	else
-	{
+	}else{
 		return -ENOENT;
 	};
 	return 0;
@@ -53,14 +50,14 @@ static int do_getattr( const char *path, struct stat *st )
 static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi ){	
 	
 	//printf("do_readdir %s\n",path);
-	DirectoryTree*node =  find(root,path);
-	if(node != NULL && node->fd->mark == 0){
+	TOID(struct DirectoryTree) node =  find(root,path);
+	if( ! TOID_IS_NULL(node) && TOID_IS_NULL(D_RW(node)->fd)){
 		filler( buffer, ".", NULL, 0 ); // Current Directory
 		filler( buffer, "..", NULL, 0 ); // Parent Directory
-		DirectoryTree* head = node->nextLayer;
-		while(head){
-			filler(buffer,head->dir_name,NULL,0);
-			head = head->brother;
+		TOID(struct DirectoryTree) head = D_RW(node)->nextLayer;
+		while(!TOID_IS_NULL(head)){
+			filler(buffer,D_RW(head)->dir_name,NULL,0);
+			head = D_RW(head)->brother;
 		}
 		return 0;
 	}else{
@@ -68,81 +65,67 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
 	}
 }
 
-static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi )
-{
+static int do_read( const char *path, char *buffer, size_t size, off_t offset, struct fuse_file_info *fi ){
     //printf("do_read %s\n",path);
-	DirectoryTree* node = find(root,path);
-	if(node){
-		memcpy(buffer,node->fd->c_p->content + offset,size);
-		return node->fd->f_size - offset;
+	TOID(struct DirectoryTree) node = find(root,path);
+	if(!TOID_IS_NULL(node)){
+		return read_from_pmem_disk(node,path,buffer,size,offset);
 	}
 	return -ENOENT;
 	
 }
 
-static int do_mkdir( const char *path, mode_t mode )
-{
+static int do_mkdir( const char *path, mode_t mode ){
     //printf("do_mkdir %s\n",path);
 	// TODO: judge if path is legal
-	DirectoryTree* node =  add(&root,path);
-	if(node != NULL){
-		node->fd->mark = 0;
-		node->fd->f_size = 0;
-		node->fd->c_p = NULL;
+	TOID(struct DirectoryTree) node =  add(&root,path,0);
+	if(!TOID_IS_NULL(node)){
 		return 0;
 	}else{
 		return -ENOENT;
 	}
 }
 
-static int do_mknod( const char *path, mode_t mode, dev_t rdev )
-{
+static int do_mknod( const char *path, mode_t mode, dev_t rdev ){
 	//printf("do_mknod %s\n",path);
-
 	// TODO: judge if path is legal
-	DirectoryTree* node = add(&root,path);
-	if(node != NULL){
-		node->fd->mark = 1;
-		node->fd->f_size = 0;
-		
+	TOID(struct DirectoryTree) node = add(&root,path,1);
+	if(! TOID_IS_NULL(node)){
+		//node->fd->mark = 1;
+		D_RW(D_RW(node)->fd)->f_size = 0;
 	}else{
 		return -ENONET;
 	}
 	return 0;
 }
 
-
-static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info )
-{
-    //printf("do_write %s\n",path);
-	//printf("%ld\n",info->fh);
-
+static int do_write( const char *path, const char *buffer, size_t size, off_t offset, struct fuse_file_info *info ){
 	// write_to_file( path, buffer );
 	// @alpha 1.1: over write
-	DirectoryTree* node = find(root,path);
-	if(node == NULL){
+	TOID(struct DirectoryTree) node = find(root,path);
+	if( TOID_IS_NULL(node)){
 		//printf("207-----%s\n",path);
-		node = add(&root,path);
-		if(node){
-			node->fd->mark = 1;
-			node->fd->f_size = size;
-			//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
-			//printf("212-----%s\n",node->dir_name);
-			strcpy(node->fd->c_p->content,buffer);
-			//printf("214-----%s\n",node->fd->c_p->content);
+		node = add(&root,path,1);
+		if(! TOID_IS_NULL(node)){
+			return write_to_pmem_disk(&node,path,buffer,size,offset);
 		}else{
-
 			return -ENONET;
 		}
 	}else{
-		//printf("221-----%s\n",path);
-		node->fd->f_size = size;
-		//node->fd->c_p = (Content* )(malloc(sizeof(Content)));
-		strcpy(node->fd->c_p->content,buffer);
+		return write_to_pmem_disk(&node,path,buffer,size,offset);
 	}
-	return size;
 }
 
+static int do_unlink(const char* path){
+	int flag = erase_file(&root,path);
+	if(flag < 0) -ENONET;
+	return 0;
+}
+static int do_rmdir(const char* path){
+	int flag = erase_dir(&root,path);
+	if(flag < 0) -ENONET;
+	return 0;
+}
 static struct fuse_operations operations = {
     .getattr	= do_getattr,
     .readdir	= do_readdir,
@@ -150,16 +133,29 @@ static struct fuse_operations operations = {
     .mkdir	= do_mkdir,
     .mknod	= do_mknod,
     .write	= do_write,
+	.unlink =  do_unlink,
+	.rmdir = do_rmdir,
 };
 
-int main( int argc, char *argv[] )
-{
-	root = NULL;
-	DirectoryTree* node = add(&root,"/");
-	node->fd->mark = 0;
-	node->fd->c_p = NULL;
-	node->fd->f_size = 0;
-	//PrintTree(root);
-	fuse_main( argc, argv, &operations, NULL );
+void* schedule(){
+	int seconds = 60;
+	while(1){
+		sleep(seconds);
+		// should consider mutex
+		flush_load(&root);
+	}
+}
+
+int main( int argc, char *argv[] ){
+	const char* pool_file_name =  "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem";
+	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/tmp_fs";
+    control_init(&root,pool_file_name, root_path);
+	pthread_t thread;
+	int rc = pthread_create(&thread,NULL,schedule,NULL);
+	if(rc){
+		printf("Error:unable to create thread, %d\n", rc);
+		exit(-1);
+	}
+	fuse_main( argc, argv, &operations, NULL ); 
 	return 0;
 }
