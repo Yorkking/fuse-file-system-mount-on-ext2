@@ -18,7 +18,7 @@ POBJ_LAYOUT_BEGIN(directory_tree);
 POBJ_LAYOUT_END(directory_tree);
 
 
-// TODO: should move to pmem
+// TODO: should move to pmem:done
 typedef struct Content{
     char content[CONTENT_LENGTH];
     // TODO: the length of file can be increased
