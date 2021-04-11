@@ -1,14 +1,15 @@
 #include "util.h"
-#include<string.h>
-#include<stdlib.h>
-#include<stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
 
 //#define __NAME__MAIN__TEST__
 
 //#define pool_file_name "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem"
 
 PMEMobjpool* DirectoryTreePop;
-
+void initLock(TOID(struct DirectoryTree)* root);
 void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
     DirectoryTreePop = pmemobj_open(pool_file_name, LAYOUT_NAME);
     if(DirectoryTreePop == NULL){
@@ -27,6 +28,9 @@ void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
         TOID(struct MyRoot) root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
         (*root) = D_RW(root_obj)->root;
     }
+
+    // 初始化锁
+    initLock(root);
 
     return;
 }
@@ -48,7 +52,9 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
             D_RW(D_RW(*node)->fd)->alg_cnt = 0;
             D_RW(D_RW(*node)->fd)->dirty = 0;
             D_RW(D_RW(*node)->fd)->f_size = 0;
+            D_RW(D_RW(*node)->fd)->real_size = 0;
             D_RW(D_RW(*node)->fd)->isInDisk = 0;
+            pthread_rwlock_init(& (D_RW(D_RW(*node)->fd)->lock), NULL);
         }else{
             D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
         }
@@ -68,6 +74,7 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
                 TX_FREE(temp);
                 temp = TOID_NULL(struct Content);
             }
+            pthread_rwlock_destroy(&(D_RW(D_RW(*node)->fd)->lock));
             /*
             TX_FREE(D_RW(D_RW(*node)->fd)->c_p);
             D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
@@ -82,6 +89,10 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
 }
 
 void freeFileContent(TOID(struct DirectoryTree)* node){
+
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return;
+
     TX_BEGIN(DirectoryTreePop){
         TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
         while(!TOID_IS_NULL(head)){
@@ -91,12 +102,19 @@ void freeFileContent(TOID(struct DirectoryTree)* node){
             temp = TOID_NULL(struct Content);
         }
         D_RW(D_RW(*node)->fd)->isInDisk = 1;
+        D_RW(D_RW(*node)->fd)->f_size = 0;
+        D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
     }TX_END  
+
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
 }
 int getContentBlocks(int f_size){
     return f_size / CONTENT_LENGTH + ((f_size % CONTENT_LENGTH == 0) ? 0 : 1);
 }
 int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset){
+
+    pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
+
     int f_size = D_RW(D_RW(*node)->fd)->f_size;
     if(offset > f_size) {
         offset = f_size;
@@ -110,11 +128,13 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
     TOID(struct Content) tail = TOID_NULL(struct Content);
     while(!TOID_IS_NULL(head)){
         if(TOID_IS_NULL(tail)) tail = head;
+        else tail = D_RW(tail)->next;
         head = D_RW(head)->next;
     }
     if(TOID_IS_NULL(tail)){
          TX_BEGIN(DirectoryTreePop){
             tail = TX_NEW(struct Content);
+            D_RW(tail)->next = TOID_NULL(struct Content);
             D_RW(D_RW(*node)->fd)->c_p = tail;
         }TX_END
         need_blocks--;
@@ -122,6 +142,8 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
     while(need_blocks--){
         TX_BEGIN(DirectoryTreePop){
             TOID(struct Content) tmp_node = TX_NEW(struct Content);
+            D_RW(tmp_node)->next = TOID_NULL(struct Content);
+
             D_RW(tail)->next = tmp_node;
             tail =  D_RW(tail)->next;
         }TX_END
@@ -148,12 +170,18 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
         head = D_RW(head)->next;
     }
     D_RW(D_RW(*node)->fd)->f_size = f_size > offset + buffer_cur_idx ? f_size : offset + buffer_cur_idx;
+    D_RW(D_RW(*node)->fd)->real_size = D_RW(D_RW(*node)->fd)->f_size;
+
     D_RW(D_RW(*node)->fd)->dirty = 1;
+
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+
     return buffer_cur_idx;
 
 }
 
 int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset){
+    pthread_rwlock_rdlock(&(D_RW(D_RW(*node)->fd))->lock);
 
     if(offset>D_RW(D_RW(*node)->fd)->f_size) return -1;
     int f_size = D_RW(D_RW(*node)->fd)->f_size;
@@ -178,6 +206,9 @@ int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_
         cur += CONTENT_LENGTH;
         head = D_RW(head)->next;
     }
+
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+
     return buffer_cur_idx;
 }
 
@@ -186,6 +217,8 @@ void writeToFileContent(TOID(struct DirectoryTree)* node, const char* buffer, in
     if(TOID_IS_NULL(D_RW(D_RW(*node)->fd)->c_p)){
         TX_BEGIN(DirectoryTreePop){
             D_RW(D_RW(*node)->fd)->c_p = TX_NEW(struct Content);
+            D_RW(D_RW(D_RW(*node)->fd)->c_p)->next = TOID_NULL(struct Content);
+
             strcpy(D_RW(D_RW(D_RW(*node)->fd)->c_p)->content,buffer);
 
             D_RW(D_RW(*node)->fd)->f_size = size;
@@ -348,7 +381,20 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
     freeDirNode(&t_p);
     return 1;
 }
-
+void initLock(TOID(struct DirectoryTree)* root){
+    if(!TOID_IS_NULL(*root)){
+        TOID(struct DirectoryTree) head = *root;
+        while(!TOID_IS_NULL(head)){
+            if(dirOrFileNode(head) == 0){
+                initLock(& D_RW(head)->nextLayer);
+            }else{
+                pthread_rwlock_destroy(& (D_RW(D_RW(head)->fd)->lock));
+                pthread_rwlock_init(& (D_RW(D_RW(head)->fd)->lock), NULL);
+            }
+            head = D_RW(head)->brother;
+        }
+    }
+}
 void printTree(TOID(struct DirectoryTree) root){
     if(!TOID_IS_NULL(root)){
         TOID(struct DirectoryTree) head = root;
@@ -372,6 +418,57 @@ int dirOrFileNode(TOID(struct DirectoryTree) node){
 
 void resetAlg(TOID(struct DirectoryTree)* root){
     D_RW(D_RW(*root)->fd)->alg_cnt = 0;
+}
+
+int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length){
+
+
+    int f_size = D_RW(D_RW(*node)->fd)->f_size;
+    int file_length = length ;
+    int cur_blocks = getContentBlocks(f_size);
+    int need_blocks =  getContentBlocks(file_length);
+    if(need_blocks > cur_blocks) return -1;
+    
+    // free storage space
+    TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
+    TOID(struct Content) pre = TOID_NULL(struct Content);
+
+    //printf("---util424: %d %ld %d\n",f_size, length,need_blocks);
+
+    while(need_blocks > 0 && !TOID_IS_NULL(head)){
+        if(TOID_IS_NULL(pre)) pre = head;
+        else pre = D_RW(pre)->next;
+        head = D_RW(head)->next;
+        need_blocks--;
+    }
+   
+
+    pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
+
+    //printf("----428 util: in\n");
+    if(f_size != 0){
+        TX_BEGIN(DirectoryTreePop){
+            while(!TOID_IS_NULL(head)){
+                TOID(struct Content) temp = head;
+                head = D_RW(head)->next;
+                TX_FREE(temp);
+                temp = TOID_NULL(struct Content);
+            }
+        }TX_END
+    }
+    
+    //printf("---util457: want to realse %ld\n",length);
+    D_RW(D_RW(*node)->fd)->f_size = (int)(length);
+    D_RW(D_RW(*node)->fd)->real_size = (int)(length);
+    if(TOID_IS_NULL(pre)) D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
+    else D_RW(pre)->next = TOID_NULL(struct Content);
+    D_RW(D_RW(*node)->fd)->dirty = 1;
+
+    //printf("---util463: want to realse %ld\n",length);
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+
+    //printf("---util466: ok %ld\n",length);
+    return 0;
 }
 
 #ifdef __NAME__MAIN__TEST__

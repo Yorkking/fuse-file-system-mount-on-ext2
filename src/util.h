@@ -2,9 +2,8 @@
 #define UTIL_H 1
 
 #include <libpmemobj.h>
-
+#include <pthread.h>
 #define MAX_FILE_NAME_LENGTH 128
-
 #ifndef CONTENT_LENGTH
 #define CONTENT_LENGTH 512
 #endif
@@ -30,9 +29,11 @@ typedef struct FileDescriptor{
     // TODO: other attributes shoule be considered
     int alg_cnt; // cnt for the replace algorithm
     TOID(struct Content) c_p; 
-    int f_size; 
+    int f_size; // just the size in pmem
+    int real_size;
     int dirty;
     int isInDisk; // 0 indicate the file in pmem, 1 indicate in disk
+    pthread_rwlock_t lock;
 }FileDescriptor;
 
 typedef struct DirectoryTree{
@@ -60,6 +61,7 @@ void init(TOID(struct DirectoryTree)* root, const char* pool_file_name);
 int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset);
 int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset);
 
+int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length);
 void resetAlg(TOID(struct DirectoryTree)* root);
 
 #endif

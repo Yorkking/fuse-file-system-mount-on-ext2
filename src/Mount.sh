@@ -1,2 +1,2 @@
 #! /usr/bin/zsh
-make && make clean && ./main -f ./testFs/test &
+make && make clean && ./main  ../tmp_pmem/ &

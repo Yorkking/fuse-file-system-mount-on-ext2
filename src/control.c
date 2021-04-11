@@ -41,15 +41,23 @@ void help_write_to_disk(TOID(struct DirectoryTree) node, const char* path){
 void help_load_to_pmem(TOID(struct DirectoryTree)* node, const char* path){
     
     FILE* fp = fopen(path,"r");
+    
+    printf("----control.c 45: %s\n",path);
+
     if(fp != NULL){
         char buffer[CONTENT_LENGTH];
         int cur = 0;
+
+        //printf("----control.c 51: %d\n",cur);
+
         while(!feof(fp)){
             int size = fread(buffer,sizeof(char),CONTENT_LENGTH, fp);
-            writeContent(node,buffer,size,cur);
-            cur += size;
+            cur = writeContent(node,buffer,size,cur);
+            printf("----control.c 56: %d %d\n",cur,size);
         }
         fclose(fp);
+        printf("----control.c 59: %d\n",cur);
+
         D_RW(D_RW(*node)->fd)->isInDisk = 0;
     }
 }
@@ -59,6 +67,7 @@ void help_load_to_pmem(TOID(struct DirectoryTree)* node, const char* path){
     1 just for release, 2 for load, 3 just for write not release, 4 for realse and write, 0 for nothing
 */
 int isFlushLoad(TOID(struct DirectoryTree) node){
+    //return 2; // for test
     if(TOID_IS_NULL(node)) return -1; // error
     int threshold = 4;
     if(D_RW(D_RW(node)->fd)->alg_cnt > threshold){ 
@@ -148,6 +157,7 @@ void flush_load(TOID(struct DirectoryTree)* root){
 }
 
 int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char* buffer, size_t size, off_t offset){
+    printf("-----control 160 read : %ld, %ld %d\n",size, offset, D_RW(D_RW(node)->fd)->isInDisk);
     if(D_RW(D_RW(node)->fd)->isInDisk == 0){
         int r_size = readContent(&node,buffer,size,offset);
 		D_RW(D_RW(node)->fd)->alg_cnt += 1;
@@ -157,9 +167,12 @@ int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char*
         strcpy(temp,__ROOT_PATH__);
         strcat(temp,path);
         FILE* fp = fopen(temp,"r");
+        //printf("-----control 160: %s\n",temp);
         if(fp != NULL){
+            //printf("---162: %ld %ld\n",size,offset);
             fseek(fp,offset,SEEK_SET);
             int r_size = fread(buffer,sizeof(char),size, fp);
+            fflush(fp);
             fclose(fp);
             D_RW(D_RW(node)->fd)->alg_cnt += 1;
 		    return r_size;
@@ -167,6 +180,9 @@ int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char*
     }
 }
 int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const char* buffer, size_t size, off_t offset){
+
+    printf("-----control 175: %ld, %ld %d\n",size, offset, D_RW(D_RW(*node)->fd)->isInDisk);
+
     if(D_RW(D_RW(*node)->fd)->isInDisk == 0){
         D_RW(D_RW(*node)->fd)->alg_cnt += 2;
         D_RW(D_RW(*node)->fd)->dirty = 1;
@@ -175,12 +191,22 @@ int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const
         char temp[MAX_FILE_NAME_LENGTH * 5];
         strcpy(temp,__ROOT_PATH__);
         strcat(temp,path);
-        FILE* fp = fopen(path,"w");
+        FILE* fp;
+        if(offset == 0){
+            fp = fopen(temp,"w+");
+        }else{
+            fp = fopen(temp,"a+");
+        }
         if(fp != NULL){
-            fseek(fp,offset,SEEK_SET);
+            //printf("---183 %ld %ld\n",offset,size);
             int w_size = fwrite(buffer,sizeof(char),size, fp);
-            D_RW(D_RW(*node)->fd)->alg_cnt += 2;
+            fseek(fp,0,SEEK_END);
+            long file_length = ftell(fp);
+            fflush(fp);
             fclose(fp);
+            D_RW(D_RW(*node)->fd)->alg_cnt += 2;
+            D_RW(D_RW(*node)->fd)->real_size = (int)(file_length);
+            //printf("---control 197: %ld\n",file_length);
             return w_size;
         }
         return 0;
@@ -248,7 +274,7 @@ int erase_dir(TOID(struct DirectoryTree)* root, const char* path){
         // TODO: recursive delete, but I want to implement it in eraseNode
         delete_file(temp);
         rmdir(temp);
-        return 1;
+        return 0;
     }
     return -ENONET;
 }
