@@ -6,8 +6,8 @@
 #include "util.h"
 
 void control_init(TOID(struct DirectoryTree)* root, const char* pool_file_name,const char* root_path);
-int isFlushLoad(TOID(struct DirectoryTree) node);
-void flush_load(TOID(struct DirectoryTree)* root);
+
+void flush_load(TOID(struct DirectoryTree)* root, int* pseconds, int gamma, int* phot, int miss, int visit);
 
 int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, 
                     const char* buffer, size_t size, off_t offset);

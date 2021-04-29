@@ -42,6 +42,7 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
         //TX_ADD(*node);
         *node = TX_NEW(struct DirectoryTree);
         D_RW(*node)->nextLayer = TOID_NULL(struct DirectoryTree);
+        D_RW(*node)->nextLayerTail = TOID_NULL(struct DirectoryTree);
         D_RW(*node)->brother = TOID_NULL(struct DirectoryTree);
         if(mark){
             D_RW(*node)->fd = TX_NEW(struct FileDescriptor);
@@ -56,8 +57,10 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
             D_RW(D_RW(*node)->fd)->real_size = 0;
             D_RW(D_RW(*node)->fd)->isInDisk = 0;
             pthread_rwlock_init(& (D_RW(D_RW(*node)->fd)->lock), NULL);
+            //pthread_mutex_init( &D_RW(*node)->file_add_lock,NULL);
         }else{
             D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
+            pthread_mutex_init( &D_RW(*node)->file_add_lock,NULL);
         }
 
     }TX_END
@@ -83,7 +86,7 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
 
             TX_FREE(D_RW(*node)->fd);
             D_RW(*node)->fd = TOID_NULL(struct FileDescriptor);
-        }
+        }else pthread_mutex_destroy(&D_RW(*node)->file_add_lock);
         TX_FREE(*node);
         *node = TOID_NULL(struct DirectoryTree);
     }TX_END
@@ -311,6 +314,8 @@ TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* pat
         temp[j] = path[j];
     }
     temp[i+flag] = '\0';
+
+    // node is father
     TOID(struct DirectoryTree) node = find(*root,temp);
     if(TOID_IS_NULL(node)){
         return node;
@@ -319,23 +324,18 @@ TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* pat
     TOID(struct DirectoryTree) newNode;
     createDirNode(&newNode,mark);
     strcpy(D_RW(newNode)->dir_name,path+i+1);
-    TOID(struct DirectoryTree) tempP;
-    createDirNode(&tempP,mark);
-
-    TOID(struct DirectoryTree) t_p = tempP;
-    D_RW(tempP)->brother = D_RW(node)->nextLayer;
-
-    while(!TOID_IS_NULL(D_RW(tempP)->brother)){
-        if(strcmp(D_RW(D_RW(tempP)->brother)->dir_name,D_RW(newNode)->dir_name) == 0){
-            freeDirNode(&newNode);
-            return TOID_NULL(struct DirectoryTree);
-        }
-        tempP = D_RW(tempP)->brother;
+    
+    pthread_mutex_lock(& D_RW(node)->file_add_lock);
+    if(TOID_IS_NULL(D_RW(node)->nextLayerTail)){
+        D_RW(node)->nextLayerTail = newNode;
+        D_RW(node)->nextLayer = newNode;
+        pthread_mutex_unlock(& D_RW(node)->file_add_lock);
+        return newNode;
     }
-    D_RW(tempP)->brother = newNode;
-    D_RW(node)->nextLayer = D_RW(t_p)->brother;
+    D_RW(D_RW(node)->nextLayerTail)->brother = newNode;
+    D_RW(node)->nextLayerTail = newNode;
+    pthread_mutex_unlock(& D_RW(node)->file_add_lock);
 
-    freeDirNode(&t_p);
     return newNode;
 }
 
@@ -379,6 +379,13 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
     if(TOID_IS_NULL(head)) return -1;
     D_RW(tempP)->brother = D_RW(head)->brother;
     D_RW(node)->nextLayer = D_RW(t_p)->brother;
+    // update the tail node
+    if(TOID_IS_NULL(D_RW(head)->brother)){
+        D_RW(node)->nextLayerTail = tempP;
+    }
+    if(TOID_IS_NULL(D_RW(node)->nextLayer) || TOID_IS_NULL(D_RW(D_RW(node)->nextLayer)->brother)) {
+        D_RW(node)->nextLayerTail = D_RW(node)->nextLayer;
+    }
     //(node->fd->f_size)--;  // directory size decrease
     eraseTree(&head);
     freeDirNode(&t_p);
@@ -389,6 +396,8 @@ void initLock(TOID(struct DirectoryTree)* root){
         TOID(struct DirectoryTree) head = *root;
         while(!TOID_IS_NULL(head)){
             if(dirOrFileNode(head) == 0){
+                pthread_mutex_destroy(& D_RW(head)->file_add_lock);
+                pthread_mutex_init( &D_RW(head)->file_add_lock,NULL);
                 initLock(& D_RW(head)->nextLayer);
             }else{
                 pthread_rwlock_destroy(& (D_RW(D_RW(head)->fd)->lock));

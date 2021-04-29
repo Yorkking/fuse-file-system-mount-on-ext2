@@ -41,7 +41,10 @@ typedef struct DirectoryTree{
     // TODO: file descriptor
     TOID(struct FileDescriptor) fd; // NULL for directory, else for file
     TOID(struct DirectoryTree) nextLayer;
+    TOID(struct DirectoryTree) nextLayerTail;
+
     TOID(struct DirectoryTree) brother;
+    pthread_mutex_t file_add_lock;
 }DirectoryTree;
 
 typedef struct MyRoot{
