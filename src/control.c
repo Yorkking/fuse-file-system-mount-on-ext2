@@ -52,8 +52,10 @@ void help_load_to_pmem(TOID(struct DirectoryTree)* node, const char* path){
 
         while(!feof(fp)){
             int size = fread(buffer,sizeof(char),CONTENT_LENGTH, fp);
-            cur = writeContent(node,buffer,size,cur);
+            printf("---control.c 55 %d %d\n",cur,size);
+            cur += writeContent(node,buffer,size,cur);
             printf("----control.c 56: %d %d\n",cur,size);
+            printf("----control.c 56 ftell(fp_fopen) %ld \n", ftell(fp) );
         }
         fclose(fp);
         printf("----control.c 59: %d\n",cur);
@@ -61,6 +63,15 @@ void help_load_to_pmem(TOID(struct DirectoryTree)* node, const char* path){
         D_RW(D_RW(*node)->fd)->isInDisk = 0;
     }
 }
+
+void release_write_disk(TOID(struct DirectoryTree)* node,char* cur_path){
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return;
+    help_write_to_disk(*node,cur_path);
+    freeFileContent(node);
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+}
+
 
 /* 
     judge if a node should write to disk, release it from the pmem and load to pmem from disk 
@@ -125,7 +136,7 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
         }
     }else{ // just file
         int flag = isFlushLoad(*root);
-        if(flag == 3 || flag == 4){ //write
+        if(flag == 3){ //write
             // flush to disk
             char temp[MAX_FILE_NAME_LENGTH * 5];
             strcpy(temp,__ROOT_PATH__);
@@ -133,7 +144,12 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcat(temp,D_RW(*root)->dir_name);
             //printf("73----%s\n",temp);
             // TODO: consider the atomic and the dynamic length of file
-            help_write_to_disk(*root,temp);
+            int flag = pthread_rwlock_tryrdlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                help_write_to_disk(*root,temp);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+            
         }
         if(flag == 2 ){ // load
             // TODO: consider the atomic and the dynamic length of file
@@ -142,10 +158,27 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcat(temp,cur_path);
             strcat(temp,D_RW(*root)->dir_name);
 
-            help_load_to_pmem(root,temp);
+            int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                help_load_to_pmem(root,temp);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+            
         }
-        if(flag == 1 || flag == 4){ // release
-            freeFileContent(root);
+        if(flag == 1){ // release
+            int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                freeFileContent(root);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+        }
+        if(flag == 4){
+            char temp[MAX_FILE_NAME_LENGTH * 5];
+            strcpy(temp,__ROOT_PATH__);
+            strcat(temp,cur_path);
+            strcat(temp,D_RW(*root)->dir_name);
+
+            release_write_disk(root,temp);
         }
         resetAlg(root); // set to 0 after flush or load
     }
@@ -158,10 +191,18 @@ void flush_load(TOID(struct DirectoryTree)* root){
 
 int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char* buffer, size_t size, off_t offset){
     printf("-----control 160 read : %ld, %ld %d\n",size, offset, D_RW(D_RW(node)->fd)->isInDisk);
+
+    int flag  = pthread_rwlock_tryrdlock(&(D_RW(D_RW(node)->fd))->lock);
+
+    if(flag != 0) return 0;
+
     if(D_RW(D_RW(node)->fd)->isInDisk == 0){
         int r_size = readContent(&node,buffer,size,offset);
-		D_RW(D_RW(node)->fd)->alg_cnt += 1;
-		return r_size;
+		D_RW(D_RW(node)->fd)->alg_cnt += 1; // 需要原子性操作
+
+        pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
+		
+        return r_size;
     }else{
         char temp[MAX_FILE_NAME_LENGTH * 5];
         strcpy(temp,__ROOT_PATH__);
@@ -175,18 +216,25 @@ int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char*
             fflush(fp);
             fclose(fp);
             D_RW(D_RW(node)->fd)->alg_cnt += 1;
+            pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
 		    return r_size;
         }
+        pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
+        return 0;
     }
 }
 int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const char* buffer, size_t size, off_t offset){
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return 0;
 
     printf("-----control 175: %ld, %ld %d\n",size, offset, D_RW(D_RW(*node)->fd)->isInDisk);
 
     if(D_RW(D_RW(*node)->fd)->isInDisk == 0){
         D_RW(D_RW(*node)->fd)->alg_cnt += 2;
         D_RW(D_RW(*node)->fd)->dirty = 1;
-        return writeContent(node,buffer,size,offset);
+        int w_size = writeContent(node,buffer,size,offset);
+        pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+        return w_size;
     }else{
         char temp[MAX_FILE_NAME_LENGTH * 5];
         strcpy(temp,__ROOT_PATH__);
@@ -207,8 +255,10 @@ int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const
             D_RW(D_RW(*node)->fd)->alg_cnt += 2;
             D_RW(D_RW(*node)->fd)->real_size = (int)(file_length);
             //printf("---control 197: %ld\n",file_length);
+            pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
             return w_size;
         }
+        pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
         return 0;
     }
 }

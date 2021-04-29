@@ -13,7 +13,8 @@ void initLock(TOID(struct DirectoryTree)* root);
 void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
     DirectoryTreePop = pmemobj_open(pool_file_name, LAYOUT_NAME);
     if(DirectoryTreePop == NULL){
-        DirectoryTreePop = pmemobj_create(pool_file_name,LAYOUT_NAME, PMEMOBJ_MIN_POOL,0666);
+        long long PMEMOBJ_POOL_SIZE = 1024L * 1024L * 1024L;
+        DirectoryTreePop = pmemobj_create(pool_file_name,LAYOUT_NAME, PMEMOBJ_POOL_SIZE,0666);
         if(DirectoryTreePop == NULL){
             perror("pmemobj_create");
             return;
@@ -90,9 +91,10 @@ void freeDirNode(TOID(struct DirectoryTree)* node){
 
 void freeFileContent(TOID(struct DirectoryTree)* node){
 
+    /*
     int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
     if(flag != 0) return;
-
+    */
     TX_BEGIN(DirectoryTreePop){
         TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
         while(!TOID_IS_NULL(head)){
@@ -106,15 +108,15 @@ void freeFileContent(TOID(struct DirectoryTree)* node){
         D_RW(D_RW(*node)->fd)->c_p = TOID_NULL(struct Content);
     }TX_END  
 
-    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+   // pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
 }
 int getContentBlocks(int f_size){
     return f_size / CONTENT_LENGTH + ((f_size % CONTENT_LENGTH == 0) ? 0 : 1);
 }
 int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset){
 
-    pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
-
+    //pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    //if(size == 0) return 0;
     int f_size = D_RW(D_RW(*node)->fd)->f_size;
     if(offset > f_size) {
         offset = f_size;
@@ -139,7 +141,7 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
         }TX_END
         need_blocks--;
     }
-    while(need_blocks--){
+    while(need_blocks > 0){
         TX_BEGIN(DirectoryTreePop){
             TOID(struct Content) tmp_node = TX_NEW(struct Content);
             D_RW(tmp_node)->next = TOID_NULL(struct Content);
@@ -147,6 +149,7 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
             D_RW(tail)->next = tmp_node;
             tail =  D_RW(tail)->next;
         }TX_END
+        need_blocks--;
     }
     // write to pmem
     head = D_RW(D_RW(*node)->fd)->c_p;
@@ -174,14 +177,14 @@ int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t siz
 
     D_RW(D_RW(*node)->fd)->dirty = 1;
 
-    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+    //pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
 
     return buffer_cur_idx;
 
 }
 
 int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset){
-    pthread_rwlock_rdlock(&(D_RW(D_RW(*node)->fd))->lock);
+    //pthread_rwlock_rdlock(&(D_RW(D_RW(*node)->fd))->lock);
 
     if(offset>D_RW(D_RW(*node)->fd)->f_size) return -1;
     int f_size = D_RW(D_RW(*node)->fd)->f_size;
@@ -207,7 +210,7 @@ int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_
         head = D_RW(head)->next;
     }
 
-    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+    //pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
 
     return buffer_cur_idx;
 }
@@ -422,12 +425,16 @@ void resetAlg(TOID(struct DirectoryTree)* root){
 
 int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length){
 
-
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return -1;
     int f_size = D_RW(D_RW(*node)->fd)->f_size;
     int file_length = length ;
     int cur_blocks = getContentBlocks(f_size);
     int need_blocks =  getContentBlocks(file_length);
-    if(need_blocks > cur_blocks) return -1;
+    if(need_blocks > cur_blocks){
+        pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+        return -1;
+    }
     
     // free storage space
     TOID(struct Content) head = D_RW(D_RW(*node)->fd)->c_p;
@@ -443,7 +450,7 @@ int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length){
     }
    
 
-    pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    //pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
 
     //printf("----428 util: in\n");
     if(f_size != 0){

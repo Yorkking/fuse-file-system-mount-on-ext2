@@ -4,7 +4,7 @@ import os
 
 basis = 'abcdefghijklmnopqrstuvwxyz'
 n = 7
-root = '/home/ubuntu/shuitang/GraduationProject/wykfs/' + 'tmp_pmem/'
+root = '/home/ubuntu/shuitang/GraduationProject/wykfs/' + 'disk_file_test/'
 all_dir_list = []
 for i in range(0,n+1):
     for j in range(26):

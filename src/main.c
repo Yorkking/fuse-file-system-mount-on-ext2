@@ -154,7 +154,9 @@ void* schedule(){
 	while(1){
 		sleep(seconds);
 		// should consider mutex
+		printf("----start scheudule\n");
 		flush_load(&root);
+		printf("----end scheudule\n");
 	}
 }
 
