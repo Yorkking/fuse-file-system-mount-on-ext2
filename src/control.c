@@ -11,7 +11,13 @@
 #include <limits.h>
 
 
+// for schedule algorithm
+int __MISS_COUNT__ = 0;
+int __GAMMA__ = 2;
+int __VISIT_COUNT__ = 0;
+
 //#define __CONTROL_C_TEST__
+
 
 char __ROOT_PATH__[MAX_FILE_NAME_LENGTH];
 /* init the root path */
@@ -41,26 +47,46 @@ void help_write_to_disk(TOID(struct DirectoryTree) node, const char* path){
 void help_load_to_pmem(TOID(struct DirectoryTree)* node, const char* path){
     
     FILE* fp = fopen(path,"r");
+    
+    //printf("----control.c 45: %s\n",path);
+
     if(fp != NULL){
         char buffer[CONTENT_LENGTH];
         int cur = 0;
+
+        //printf("----control.c 51: %d\n",cur);
+
         while(!feof(fp)){
             int size = fread(buffer,sizeof(char),CONTENT_LENGTH, fp);
-            writeContent(node,buffer,size,cur);
-            cur += size;
+            //printf("---control.c 55 %d %d\n",cur,size);
+            cur += writeContent(node,buffer,size,cur);
+            //printf("----control.c 56: %d %d\n",cur,size);
+            //printf("----control.c 56 ftell(fp_fopen) %ld \n", ftell(fp) );
         }
         fclose(fp);
+        //printf("----control.c 59: %d\n",cur);
+
         D_RW(D_RW(*node)->fd)->isInDisk = 0;
     }
 }
+
+void release_write_disk(TOID(struct DirectoryTree)* node,char* cur_path){
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return;
+    help_write_to_disk(*node,cur_path);
+    freeFileContent(node);
+    pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+}
+
 
 /* 
     judge if a node should write to disk, release it from the pmem and load to pmem from disk 
     1 just for release, 2 for load, 3 just for write not release, 4 for realse and write, 0 for nothing
 */
-int isFlushLoad(TOID(struct DirectoryTree) node){
+int isFlushLoad(TOID(struct DirectoryTree) node, int threshold){
+    //return 2; // for test
     if(TOID_IS_NULL(node)) return -1; // error
-    int threshold = 4;
+    //int threshold = 4;
     if(D_RW(D_RW(node)->fd)->alg_cnt > threshold){ 
         if(D_RW(D_RW(node)->fd)->isInDisk == 0){
             if(D_RW(D_RW(node)->fd)->dirty == 1) return 3;
@@ -77,7 +103,7 @@ int isFlushLoad(TOID(struct DirectoryTree) node){
         return 0;
     }
 }
-void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
+void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path, int threshold){
     //printf("24----%s\n",cur_path);
     if(TOID_IS_NULL(*root)) return ;  
     if(dirOrFileNode(*root) == 0){ // directory
@@ -88,7 +114,7 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcpy(cur_path,"/");
             TOID(struct DirectoryTree) t_p = D_RW(*root)->nextLayer;
             while(!TOID_IS_NULL(t_p)){
-                help_flush_load(&t_p,cur_path);
+                help_flush_load(&t_p,cur_path,threshold);
                 t_p = D_RW(t_p)->brother;
             }
         }else{
@@ -105,7 +131,7 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcat(cur_path,"/");
             TOID(struct DirectoryTree) t_p = D_RW(*root)->nextLayer;
             while(!TOID_IS_NULL(t_p)){
-                help_flush_load(&t_p,cur_path);
+                help_flush_load(&t_p,cur_path,threshold);
                 t_p = D_RW(t_p)->brother;
             }
             //cur_path[len] = '\0'; // should consider to clear all the char of array
@@ -115,8 +141,8 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             }
         }
     }else{ // just file
-        int flag = isFlushLoad(*root);
-        if(flag == 3 || flag == 4){ //write
+        int flag = isFlushLoad(*root, threshold);
+        if(flag == 3){ //write
             // flush to disk
             char temp[MAX_FILE_NAME_LENGTH * 5];
             strcpy(temp,__ROOT_PATH__);
@@ -124,7 +150,12 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcat(temp,D_RW(*root)->dir_name);
             //printf("73----%s\n",temp);
             // TODO: consider the atomic and the dynamic length of file
-            help_write_to_disk(*root,temp);
+            int flag = pthread_rwlock_tryrdlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                help_write_to_disk(*root,temp);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+            
         }
         if(flag == 2 ){ // load
             // TODO: consider the atomic and the dynamic length of file
@@ -133,56 +164,130 @@ void help_flush_load(TOID(struct DirectoryTree)* root, char* cur_path){
             strcat(temp,cur_path);
             strcat(temp,D_RW(*root)->dir_name);
 
-            help_load_to_pmem(root,temp);
+            int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                help_load_to_pmem(root,temp);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+            
         }
-        if(flag == 1 || flag == 4){ // release
-            freeFileContent(root);
+        if(flag == 1){ // release
+            int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*root)->fd))->lock);
+            if(flag == 0){
+                freeFileContent(root);
+                pthread_rwlock_unlock(&(D_RW(D_RW(*root)->fd))->lock);
+            }
+        }
+        if(flag == 4){
+            char temp[MAX_FILE_NAME_LENGTH * 5];
+            strcpy(temp,__ROOT_PATH__);
+            strcat(temp,cur_path);
+            strcat(temp,D_RW(*root)->dir_name);
+
+            release_write_disk(root,temp);
         }
         resetAlg(root); // set to 0 after flush or load
     }
 }
 /* according to the algorithm to flush and load some nodes of the directory tree */
-void flush_load(TOID(struct DirectoryTree)* root){
+void flush_load(TOID(struct DirectoryTree)* root, int* pseconds, int gamma, int* phot, int miss, int visit){
     char __recur_temp__[MAX_FILE_NAME_LENGTH*5];
-    help_flush_load(root,__recur_temp__);
+    __GAMMA__ = gamma;
+    __MISS_COUNT__ = 0;
+    __VISIT_COUNT__ = 0;
+    help_flush_load(root,__recur_temp__,*phot);
+    int T_min = 4;
+    int T_max = 1024;
+    if(__MISS_COUNT__ >= miss && *pseconds >= T_min){
+        *pseconds = *pseconds >> 1;
+    }
+    if(__VISIT_COUNT__ >= visit  && __MISS_COUNT__ < miss && *pseconds < T_max){
+        *pseconds = *pseconds << 1;
+    }
+    if(__MISS_COUNT__ > 2 * miss){
+        *phot = *phot >> 1;
+    }
+    if(__MISS_COUNT__ < miss){
+        *phot = *phot + 1;
+    }
+    __VISIT_COUNT__ = 0;
+    __MISS_COUNT__ = 0;
 }
 
 int read_from_pmem_disk(TOID(struct DirectoryTree) node, const char* path, char* buffer, size_t size, off_t offset){
+    //printf("-----control 160 read : %ld, %ld %d\n",size, offset, D_RW(D_RW(node)->fd)->isInDisk);
+    __VISIT_COUNT__++;
+
+    int flag  = pthread_rwlock_tryrdlock(&(D_RW(D_RW(node)->fd))->lock);
+
+    if(flag != 0) return 0;
+
     if(D_RW(D_RW(node)->fd)->isInDisk == 0){
         int r_size = readContent(&node,buffer,size,offset);
-		D_RW(D_RW(node)->fd)->alg_cnt += 1;
-		return r_size;
-    }else{
+		D_RW(D_RW(node)->fd)->alg_cnt += 1; // 需要原子性操作
+
+        pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
+		
+        return r_size;
+    }else{ 
+        __MISS_COUNT__ ++;
         char temp[MAX_FILE_NAME_LENGTH * 5];
         strcpy(temp,__ROOT_PATH__);
         strcat(temp,path);
         FILE* fp = fopen(temp,"r");
+        //printf("-----control 160: %s\n",temp);
         if(fp != NULL){
+            //printf("---162: %ld %ld\n",size,offset);
             fseek(fp,offset,SEEK_SET);
             int r_size = fread(buffer,sizeof(char),size, fp);
+            fflush(fp);
             fclose(fp);
             D_RW(D_RW(node)->fd)->alg_cnt += 1;
+            pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
 		    return r_size;
         }
+        pthread_rwlock_unlock(&(D_RW(D_RW(node)->fd))->lock);
+        return 0;
     }
 }
 int write_to_pmem_disk(TOID(struct DirectoryTree)* node, const char* path, const char* buffer, size_t size, off_t offset){
+    __VISIT_COUNT__ ++;
+    int flag = pthread_rwlock_trywrlock(&(D_RW(D_RW(*node)->fd))->lock);
+    if(flag != 0) return 0;
+
+    //printf("-----control 175: %ld, %ld %d\n",size, offset, D_RW(D_RW(*node)->fd)->isInDisk);
+
     if(D_RW(D_RW(*node)->fd)->isInDisk == 0){
-        D_RW(D_RW(*node)->fd)->alg_cnt += 2;
+        D_RW(D_RW(*node)->fd)->alg_cnt += __GAMMA__;
         D_RW(D_RW(*node)->fd)->dirty = 1;
-        return writeContent(node,buffer,size,offset);
+        int w_size = writeContent(node,buffer,size,offset);
+        pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
+        return w_size;
     }else{
+        __MISS_COUNT__ ++;
         char temp[MAX_FILE_NAME_LENGTH * 5];
         strcpy(temp,__ROOT_PATH__);
         strcat(temp,path);
-        FILE* fp = fopen(path,"w");
+        FILE* fp;
+        if(offset == 0){
+            fp = fopen(temp,"w+");
+        }else{
+            fp = fopen(temp,"a+");
+        }
         if(fp != NULL){
-            fseek(fp,offset,SEEK_SET);
+            //printf("---183 %ld %ld\n",offset,size);
             int w_size = fwrite(buffer,sizeof(char),size, fp);
-            D_RW(D_RW(*node)->fd)->alg_cnt += 2;
+            fseek(fp,0,SEEK_END);
+            long file_length = ftell(fp);
+            fflush(fp);
             fclose(fp);
+            D_RW(D_RW(*node)->fd)->alg_cnt += __GAMMA__;
+            D_RW(D_RW(*node)->fd)->real_size = (int)(file_length);
+            //printf("---control 197: %ld\n",file_length);
+            pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
             return w_size;
         }
+        pthread_rwlock_unlock(&(D_RW(D_RW(*node)->fd))->lock);
         return 0;
     }
 }
@@ -248,7 +353,7 @@ int erase_dir(TOID(struct DirectoryTree)* root, const char* path){
         // TODO: recursive delete, but I want to implement it in eraseNode
         delete_file(temp);
         rmdir(temp);
-        return 1;
+        return 0;
     }
     return -ENONET;
 }

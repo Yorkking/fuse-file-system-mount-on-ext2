@@ -2,9 +2,8 @@
 #define UTIL_H 1
 
 #include <libpmemobj.h>
-
+#include <pthread.h>
 #define MAX_FILE_NAME_LENGTH 128
-
 #ifndef CONTENT_LENGTH
 #define CONTENT_LENGTH 512
 #endif
@@ -18,7 +17,7 @@ POBJ_LAYOUT_BEGIN(directory_tree);
 POBJ_LAYOUT_END(directory_tree);
 
 
-// TODO: should move to pmem
+// TODO: should move to pmem:done
 typedef struct Content{
     char content[CONTENT_LENGTH];
     // TODO: the length of file can be increased
@@ -30,9 +29,11 @@ typedef struct FileDescriptor{
     // TODO: other attributes shoule be considered
     int alg_cnt; // cnt for the replace algorithm
     TOID(struct Content) c_p; 
-    int f_size; 
+    int f_size; // just the size in pmem
+    int real_size;
     int dirty;
     int isInDisk; // 0 indicate the file in pmem, 1 indicate in disk
+    pthread_rwlock_t lock;
 }FileDescriptor;
 
 typedef struct DirectoryTree{
@@ -40,7 +41,10 @@ typedef struct DirectoryTree{
     // TODO: file descriptor
     TOID(struct FileDescriptor) fd; // NULL for directory, else for file
     TOID(struct DirectoryTree) nextLayer;
+    TOID(struct DirectoryTree) nextLayerTail;
+
     TOID(struct DirectoryTree) brother;
+    pthread_mutex_t file_add_lock;
 }DirectoryTree;
 
 typedef struct MyRoot{
@@ -60,6 +64,7 @@ void init(TOID(struct DirectoryTree)* root, const char* pool_file_name);
 int writeContent(TOID(struct DirectoryTree)* node, const char* buffer,size_t size, off_t offset);
 int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_t offset);
 
+int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length);
 void resetAlg(TOID(struct DirectoryTree)* root);
 
 #endif

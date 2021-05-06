@@ -30,7 +30,10 @@ static int do_getattr( const char *path, struct stat *st ){
 	st->st_gid = getgid(); // The group of the file/directory is the same as the group of the user who mounted the filesystem
 	st->st_atime = time( NULL ); // The last "a"ccess of the file/directory is right now
 	st->st_mtime = time( NULL ); // The last "m"odification of the file/directory is right now
-	int flag = isDirOrFile(path);
+	TOID(struct DirectoryTree) node = find(root,path);
+	if(TOID_IS_NULL(node)) return -ENOENT; // don't exsit
+	int flag  = TOID_IS_NULL(D_RW(node)->fd) ? 0 : 1 ; // 1 for file, 0 for directory
+
 	if ( flag == 0 ) // directory
 	{
 		st->st_mode = S_IFDIR | 0755;
@@ -38,9 +41,9 @@ static int do_getattr( const char *path, struct stat *st ){
 	}
 	else if ( flag == 1 ) // file
 	{
-		st->st_mode = S_IFREG | 0644;
+		st->st_mode = S_IFREG | 0777;
 		st->st_nlink = 1;
-		st->st_size = 1024;
+		st->st_size = D_RW(D_RW(node)->fd)->real_size;
 	}else{
 		return -ENOENT;
 	};
@@ -52,13 +55,20 @@ static int do_readdir( const char *path, void *buffer, fuse_fill_dir_t filler, o
 	//printf("do_readdir %s\n",path);
 	TOID(struct DirectoryTree) node =  find(root,path);
 	if( ! TOID_IS_NULL(node) && TOID_IS_NULL(D_RW(node)->fd)){
-		filler( buffer, ".", NULL, 0 ); // Current Directory
+		// Current Directory
+		
+		filler( buffer, ".", NULL, 0 );
 		filler( buffer, "..", NULL, 0 ); // Parent Directory
 		TOID(struct DirectoryTree) head = D_RW(node)->nextLayer;
+		long int cnt = 0;
 		while(!TOID_IS_NULL(head)){
 			filler(buffer,D_RW(head)->dir_name,NULL,0);
 			head = D_RW(head)->brother;
+			cnt++;
 		}
+		
+		//filler( buffer, ".", NULL, cnt ); 
+		printf("ds\n");
 		return 0;
 	}else{
 		return -ENOENT;
@@ -126,6 +136,14 @@ static int do_rmdir(const char* path){
 	if(flag < 0) -ENONET;
 	return 0;
 }
+static int do_truncate(const char *path, off_t length){
+	TOID(struct DirectoryTree) node = find(root,path);
+	//printf("---main 134: %ld, %s\n",length, path);
+	if(D_RW(D_RW(node)->fd)->real_size > length){
+		return fileSizeSet(&node,length);
+	}
+	return 0;
+}
 static struct fuse_operations operations = {
     .getattr	= do_getattr,
     .readdir	= do_readdir,
@@ -135,23 +153,32 @@ static struct fuse_operations operations = {
     .write	= do_write,
 	.unlink =  do_unlink,
 	.rmdir = do_rmdir,
+	.truncate = do_truncate,
 };
 
 void* schedule(){
-	int seconds = 60;
+	int seconds = 25;
+	int hot = 5;
+	int miss = 64;
+	int visit = 64;
+	int gamma = 2;
 	while(1){
 		sleep(seconds);
 		// should consider mutex
-		flush_load(&root);
+		printf("----start scheudule\n");
+		flush_load(&root,&seconds,gamma,&hot,miss,visit);
+		//__MISS_COUNT__ = 0;
+		printf("----end scheudule\n");
+		printf("---%d %d\n",seconds,hot);
 	}
 }
 
 int main( int argc, char *argv[] ){
 	const char* pool_file_name =  "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem";
-	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/tmp_fs";
+	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/wykfs/fs_tmp";
     control_init(&root,pool_file_name, root_path);
 	pthread_t thread;
-	int rc = pthread_create(&thread,NULL,schedule,NULL);
+	int rc = pthread_create(&thread,NULL,&schedule,NULL);
 	if(rc){
 		printf("Error:unable to create thread, %d\n", rc);
 		exit(-1);
