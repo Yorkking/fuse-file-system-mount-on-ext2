@@ -1,8 +1,0 @@
-w_size: 32 nums: 4
-done from thread: 1987491584
-done from thread: 1979098880
-done from thread: 1995884288
-done from thread: 2004276992
-time for 4 thread(s): 0.211803 s
-done from single thread : 1979098880
-time for 1 thread: 0.251938 s

@@ -1,5 +1,0 @@
-w_size: 32 nums: 1
-done from thread: 3891787520
-time for 1 thread(s): 0.107532 s
-done from single thread : 3891787520
-time for 1 thread: 0.129818 s
