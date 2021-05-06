@@ -9,7 +9,7 @@
 using namespace std;
 char buffer[1024 * 1024];
 int main(){
-    string root = "../disk_file_test/", save_file = "disk_data/";
+    string root = "../disk_file_test/", save_file = "disk_data/my_read_";
     //string root = "/mnt/pmem/wyk/wykfs/workout2/workout/tmp_pmem/", string save_file = "myfs/";
     vector<string> files;
     int cnt = 0;

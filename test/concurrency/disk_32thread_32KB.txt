@@ -1,0 +1,36 @@
+w_size: 32 nums: 32
+done from thread: 889984768
+done from thread: 957126400
+done from thread: 1057838848
+done from thread: 1108195072
+done from thread: 1074624256
+done from thread: 999089920
+done from thread: 873199360
+done from thread: 1032660736
+done from thread: 1049446144
+done from thread: 915162880
+done from thread: 1091409664
+done from thread: 1066231552
+done from thread: 990697216
+done from thread: 931948288
+done from thread: 1041053440
+done from thread: 1015875328
+done from thread: 1007482624
+done from thread: 898377472
+done from thread: 973911808
+done from thread: 982304512
+done from thread: 881592064
+done from thread: 1099802368
+done from thread: 1116587776
+done from thread: 1083016960
+done from thread: 906770176
+done from thread: 923555584
+done from thread: 940340992
+done from thread: 1124980480
+done from thread: 948733696
+done from thread: 965519104
+done from thread: 1024268032
+done from thread: 1133373184
+time for 32 thread(s): 0.219881 s
+done from single thread : 873199360
+time for 1 thread: 0.496617 s

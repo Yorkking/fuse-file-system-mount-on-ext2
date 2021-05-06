@@ -1,0 +1,12 @@
+w_size: 32 nums: 8
+done from thread: 1839335168
+done from thread: 1864513280
+done from thread: 1856120576
+done from thread: 1847727872
+done from thread: 1830942464
+done from thread: 1872905984
+done from thread: 1881298688
+done from thread: 1889691392
+time for 8 thread(s): 0.314588 s
+done from single thread : 1830942464
+time for 1 thread: 0.437302 s
