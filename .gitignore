@@ -1,2 +1,11 @@
 src/testFs/*
 *.pmem
+tmp_*
+fs_tmp*
+disk_file_test/
+concurrency_test/
+test/disk_data/
+test/concurrent
+test/*.tar
+*.txt
+*data*
