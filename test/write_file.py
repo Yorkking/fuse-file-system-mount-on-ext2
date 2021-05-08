@@ -1,5 +1,5 @@
 #coding:utf-8
-root = '../' + 'tmp_pmem/'
+root = '../' + 'tmp/tmp_pmem/'
 
 
 def random_file_content(file_size):

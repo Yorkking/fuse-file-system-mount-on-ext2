@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <dirent.h>
 #include <limits.h>
+#include <stdatomic.h>
+
 
 
 // for schedule algorithm

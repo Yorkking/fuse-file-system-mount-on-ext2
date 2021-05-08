@@ -3,6 +3,7 @@
 
 #include <libpmemobj.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #define MAX_FILE_NAME_LENGTH 128
 #ifndef CONTENT_LENGTH
 #define CONTENT_LENGTH 512
@@ -38,6 +39,7 @@ typedef struct FileDescriptor{
 
 typedef struct DirectoryTree{
     char dir_name[MAX_FILE_NAME_LENGTH];
+    atomic_uint dont_delete_count;
     // TODO: file descriptor
     TOID(struct FileDescriptor) fd; // NULL for directory, else for file
     TOID(struct DirectoryTree) nextLayer;
@@ -49,6 +51,7 @@ typedef struct DirectoryTree{
 
 typedef struct MyRoot{
     TOID(struct DirectoryTree) root;
+    TOID(struct DirectoryTree) recycle_head;  // recycle_info
 }MyRoot;
 
 void getFatherCurPath(char* f_dst,char* s_dst,const char* path);
@@ -66,5 +69,7 @@ int readContent(TOID(struct DirectoryTree)* node, char* buffer,size_t size, off_
 
 int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length);
 void resetAlg(TOID(struct DirectoryTree)* root);
+
+void createDirNode(TOID(struct DirectoryTree)* node, int mark);
 
 #endif

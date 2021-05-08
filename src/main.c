@@ -174,8 +174,8 @@ void* schedule(){
 }
 
 int main( int argc, char *argv[] ){
-	const char* pool_file_name =  "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem";
-	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/wykfs/fs_tmp";
+	const char* pool_file_name =  "/home/ubuntu/shuitang/GraduationProject/wykfs/tmp/wykfs.pmem";
+	const char* root_path = "/home/ubuntu/shuitang/GraduationProject/wykfs/tmp/fs_tmp";
     control_init(&root,pool_file_name, root_path);
 	pthread_t thread;
 	int rc = pthread_create(&thread,NULL,&schedule,NULL);

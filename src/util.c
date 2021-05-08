@@ -3,13 +3,17 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <time.h>
+#include <unistd.h>
 
 //#define __NAME__MAIN__TEST__
 
 //#define pool_file_name "/home/ubuntu/shuitang/GraduationProject/wykfs/wykfs.pmem"
 
 PMEMobjpool* DirectoryTreePop;
+TOID(struct DirectoryTree) __recycle_link_head;
 void initLock(TOID(struct DirectoryTree)* root);
+void* recycle_func();
 void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
     DirectoryTreePop = pmemobj_open(pool_file_name, LAYOUT_NAME);
     if(DirectoryTreePop == NULL){
@@ -21,20 +25,48 @@ void init(TOID(struct DirectoryTree)* root, const char* pool_file_name){
         }
         TOID(struct MyRoot) root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
         (*root) = D_RW(root_obj)->root;
+        __recycle_link_head = D_RW(root_obj)->recycle_head;
+        createDirNode(&__recycle_link_head,0);
         if(TOID_IS_NULL(add(root,"/",0))){
             perror("create root directory fail");
         }
         D_RW(root_obj)->root = (*root);
+        D_RW(root_obj)->recycle_head = __recycle_link_head;
     }else{
         TOID(struct MyRoot) root_obj = POBJ_ROOT(DirectoryTreePop,struct MyRoot);
         (*root) = D_RW(root_obj)->root;
+        __recycle_link_head = D_RW(root_obj)->recycle_head;
     }
 
     // 初始化锁
     initLock(root);
-
+    pthread_t* recycle_thread = (pthread_t*)(malloc(sizeof(pthread_t)));
+    int rc = pthread_create(recycle_thread,NULL,&recycle_func,NULL);
+    if(rc){
+        printf("Error:unable to create recycle thread, %d\n", rc);
+		exit(-1);
+    }
     return;
 }
+
+void freeDirNode(TOID(struct DirectoryTree)* node);
+void eraseTree(TOID(struct DirectoryTree)* root);
+// recycle the rm node 
+void* recycle_func(){
+    int seconds = 30;
+    while(1){
+        sleep(seconds);
+        // should atomic
+        TOID(struct DirectoryTree) head = D_RW(__recycle_link_head)->brother;
+        printf("start recycle!\n");
+        while(!TOID_IS_NULL(head)){
+            TOID(struct DirectoryTree) tmp = head;
+            head = D_RW(head)->brother;
+            eraseTree(&tmp);
+        }
+    }
+}
+
 /* mark == 1 for file, 0 for directory */
 void createDirNode(TOID(struct DirectoryTree)* node, int mark){
     // TODO: add the FileDescriptor , done
@@ -44,6 +76,7 @@ void createDirNode(TOID(struct DirectoryTree)* node, int mark){
         D_RW(*node)->nextLayer = TOID_NULL(struct DirectoryTree);
         D_RW(*node)->nextLayerTail = TOID_NULL(struct DirectoryTree);
         D_RW(*node)->brother = TOID_NULL(struct DirectoryTree);
+        D_RW(*node)->dont_delete_count = 0;
         if(mark){
             D_RW(*node)->fd = TX_NEW(struct FileDescriptor);
 
@@ -339,6 +372,12 @@ TOID(struct DirectoryTree) add(TOID(struct DirectoryTree)* root, const char* pat
     return newNode;
 }
 
+void add_rm_node_to_recycle(TOID(struct DirectoryTree)* root){
+    D_RW(*root)->brother = D_RW(__recycle_link_head)->brother;
+
+    D_RW(__recycle_link_head)->brother = *root;
+}
+
 void eraseTree(TOID(struct DirectoryTree)* root){
     if(!TOID_IS_NULL(*root)){
         TOID(struct DirectoryTree) temp = D_RW(*root)->nextLayer;
@@ -354,7 +393,10 @@ void eraseTree(TOID(struct DirectoryTree)* root){
 
 int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
     if(strcmp(D_RW(*root)->dir_name,"/") == 0 && strcmp(path,"/") == 0){
-        eraseTree(root);
+        if(D_RW(*root)->dont_delete_count != 0) return -1;
+        TOID(struct DirectoryTree)* tmp = root;
+        *root = TOID_NULL(struct DirectoryTree);
+        add_rm_node_to_recycle(tmp);
         return 1;
     }
 
@@ -376,7 +418,10 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
         tempP = D_RW(tempP)->brother;
         head = D_RW(head)->brother;
     }
-    if(TOID_IS_NULL(head)) return -1;
+    if(TOID_IS_NULL(head) || D_RW(head)->dont_delete_count != 0) return -1;
+
+    pthread_mutex_lock(& D_RW(node)->file_add_lock);
+
     D_RW(tempP)->brother = D_RW(head)->brother;
     D_RW(node)->nextLayer = D_RW(t_p)->brother;
     // update the tail node
@@ -387,7 +432,9 @@ int eraseNode(TOID(struct DirectoryTree)* root, const char* path){
         D_RW(node)->nextLayerTail = D_RW(node)->nextLayer;
     }
     //(node->fd->f_size)--;  // directory size decrease
-    eraseTree(&head);
+    add_rm_node_to_recycle(&head);
+    pthread_mutex_unlock(& D_RW(node)->file_add_lock);
+
     freeDirNode(&t_p);
     return 1;
 }
@@ -395,6 +442,7 @@ void initLock(TOID(struct DirectoryTree)* root){
     if(!TOID_IS_NULL(*root)){
         TOID(struct DirectoryTree) head = *root;
         while(!TOID_IS_NULL(head)){
+            D_RW(head)->dont_delete_count = 0; // should use atomic set?
             if(dirOrFileNode(head) == 0){
                 pthread_mutex_destroy(& D_RW(head)->file_add_lock);
                 pthread_mutex_init( &D_RW(head)->file_add_lock,NULL);
@@ -457,11 +505,6 @@ int fileSizeSet(TOID(struct DirectoryTree)* node,off_t length){
         head = D_RW(head)->next;
         need_blocks--;
     }
-   
-
-    //pthread_rwlock_wrlock(&(D_RW(D_RW(*node)->fd))->lock);
-
-    //printf("----428 util: in\n");
     if(f_size != 0){
         TX_BEGIN(DirectoryTreePop){
             while(!TOID_IS_NULL(head)){
