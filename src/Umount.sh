@@ -1,2 +1,2 @@
 #! /usr/bin/zsh
-sudo umount ../tmp_pmem
+sudo umount ../tmp/tmp_pmem
