@@ -25,28 +25,29 @@ control.c, control.h: 实现调度算法，并发控制
             - 但是，这样并没有解决第 1 步的时间开销问题。
         - 优化方案二：从读/写文件的操作修改，实现读/写文件的操作时，考虑从根节点到写/读的文件上的路径加上不可删除锁（实际上可以每个结点设置一个不可删除计数），写/读完再释放。然后删除时，判断删除目录的不可删除计数是否为 0 ，若是则进行优化方案一的操作；否则，直接返回失败信息。需要修改 find 接口，以及如何返回的接口。
 _____
-# FUSE-based multi-level scheduling file system
+# FUSE-based multi-threaded scheduling file system
+Supports Linux ext2/3/4 volumes via FUSE API
 
  ## Core components
+ 
+```main.c```: implements the file interface provided by FUSE
 
- ```main.c```: implements the file interface provided by FUSE
+```util.h```: defines the data structure of the directory multi-tree that exists in DRAM
 
- ```util.h```: defines the data structure of the directory multi-tree that exists in DRAM
+```util.c```: implements various operations of the above structure
 
- ```util.c```: implements various operations of the above structure
+```control.c```, ```control.h```: implements scheduling algorithm, concurrency control
 
- ```control.c```, ```control.h```: implements scheduling algorithm, concurrency control
-
- ## Run-time dependencies
+## Run-time dependencies
  Choose one of the following applications, according to the host platform:
 
- 🍎[MacFUSE](https://osxfuse.github.io) (Mac OS)
+ 🍎 [MacFUSE](https://osxfuse.github.io) (Mac OS)
 
- 🪟[WinFUSE](https://github.com/billziss-gh/winfuse) (Microsoft Windows)
+ 🪟 [WinFUSE](https://github.com/billziss-gh/winfuse) (Microsoft Windows)
 
- 🪟[Dokan](https://dokan-dev.github.io) (Microsoft Windows)
+ 🪟 [Dokan](https://dokan-dev.github.io) (Microsoft Windows)
 
- 🪟[cxFUSE](https://github.com/crossmeta/cxfuse) (Microsoft Windows)
+ 🪟 [cxFUSE](https://github.com/crossmeta/cxfuse) (Microsoft Windows)
 
  ## Project status
 
@@ -58,19 +59,26 @@ _____
 
  **To do**
 
- * Need to consider the problem of concurrent deletion, the solution—
+ * Need to address the problem of concurrent deletion:
 
  [Tree locking](#project-status): Starting from the directory that needs to be deleted, permanently lock all its child nodes.  If all locking operations are successful, delete the directory.  However, the deletion efficiency needs to be considered.  Using this method, deletion will take a long time because the external process calls delete, which will lead to a long wait.
 
  [Optimization scheme 1](#project-status): When deleting a directory, consider setting the next-level pointer of the parent node of the directory node to be empty, then pass this to the external process, and then hand over deletion of the subdirectory to a deletion thread to complete.  However, this does not solve the time overhead.
 
  [Optimization scheme 2](#project-status): When implementing the operation of reading/writing files, consider the path from the root node to the file to be written/read plus an undeletable lock [you can set one undeletable lock per node], then release after writing/reading. Then, when deleting, determine whether the undeletable count of the deleted directory is 0. If true, perform the optimization scheme 1; otherwise, return the failure information directly.  Need to modify the find interface, and determine how to return the interface.
+ 
+## Build instructions
+⚓️
+## Installation
+⚓️
+## Usage
+⚓️
 
- ## Additional information & references
+## Additional information & references
 
- * [Original fuse-ext2 project repository](https://github.com/alperakcan/fuse-ext2) (ignores pull requests since ```2020-7-11```,
+* [Original fuse-ext2 project repository](https://github.com/alperakcan/fuse-ext2) (ignores pull requests since ```2020-7-11```,
  risk of data loss on write operations due to bugs)
- * [List of contributors & forks](https://github.com/alperakcan/fuse-ext2/network/members) (original project)
- * [MacFUSE project page](https://osxfuse.github.io) (formerly OSXFUSE)
- * [Original project documentation](https://github.com/osxfuse/osxfuse/wiki/Ext) (MacFUSE wiki)
- * [FileSystem in UserSpace (FUSE)](https://en.wikipedia.org/wiki/Filesystem_in_Userspace) (general description - Wikipedia)
+* [List of contributors & forks](https://github.com/alperakcan/fuse-ext2/network/members) (original project)
+* [MacFUSE project page](https://osxfuse.github.io) (formerly OSXFUSE)
+* [Original project documentation](https://github.com/osxfuse/osxfuse/wiki/Ext) (MacFUSE wiki)
+* [FileSystem in UserSpace (FUSE)](https://en.wikipedia.org/wiki/Filesystem_in_Userspace) (general description - Wikipedia)
